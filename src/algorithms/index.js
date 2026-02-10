@@ -6,11 +6,12 @@
  */
 
 const FixedWindowRateLimiter = require('./FixedWindow');
+const TokenBucketRateLimiter = require('./TokenBucket');
 
 module.exports = {
   FixedWindow: FixedWindowRateLimiter,
+  TokenBucket: TokenBucketRateLimiter,
   // Future algorithms will be added here:
-  // TokenBucket: require('./TokenBucket'),
   // LeakyBucket: require('./LeakyBucket'),
   // SlidingWindow: require('./SlidingWindow'),
 };

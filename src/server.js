@@ -10,7 +10,7 @@ const express = require('express');
 const config = require('./config/default');
 const logger = require('./utils/logger');
 const metrics = require('./utils/metrics');
-const { FixedWindow } = require('./algorithms');
+const { FixedWindow, TokenBucket } = require('./algorithms');
 const createRateLimiter = require('./middleware/rateLimiter');
 
 // Initialize Express app
@@ -34,12 +34,25 @@ app.use((req, res, next) => {
 });
 
 // Initialize rate limiter
+
+// Fixed Window Limiter
 const fixedWindowLimiter = new FixedWindow({
     windowMs: config.rateLimit.fixedWindow.windowMs,
     maxRequests: config.rateLimit.fixedWindow.maxRequests
 });
 
+// Token Bucket Limiter
+const tokenBucketLimiter = new TokenBucket({
+    capacity: 100,      // Can burst up to 100 requests
+    refillRate: 10,     // 10 tokens per second sustained
+    tokensPerRequest: 1
+});
+
 // Apply rate limiting to all /api routes
+app.use('/api/fixed', createRateLimiter(fixedWindowLimiter));
+app.use('/api/token', createRateLimiter(tokenBucketLimiter));
+
+// Default to Fixed Window for /api
 app.use('/api', createRateLimiter(fixedWindowLimiter));
 
 // ============================================
@@ -61,13 +74,29 @@ app.get('/health', (req, res) => {
 /**
  * Sample API endpoint (rate limited)
  */
+// Fixed Window endpoints
+app.get('/api/fixed/data', (req, res) => {
+    res.json({
+        message: 'This endpoint uses Fixed Window rate limiting',
+        algorithm: 'FixedWindow',
+        data: { timestamp: new Date().toISOString() }
+    });
+});
+
+// Token Bucket endpoints
+app.get('/api/token/data', (req, res) => {
+    res.json({
+        message: 'This endpoint uses Token Bucket rate limiting',
+        algorithm: 'TokenBucket',
+        data: { timestamp: new Date().toISOString() }
+    });
+});
+
+// Generic endpoint (uses default Fixed Window)
 app.get('/api/data', (req, res) => {
     res.json({
         message: 'This endpoint is rate limited',
-        data: {
-            timestamp: new Date().toISOString(),
-            random: Math.random()
-        }
+        data: { timestamp: new Date().toISOString() }
     });
 });
 
@@ -87,11 +116,15 @@ app.post('/api/submit', (req, res) => {
  */
 app.get('/metrics', (req, res) => {
     const summary = metrics.getSummary();
-    const limiterStats = fixedWindowLimiter.getStats();
+    const fixedStats = fixedWindowLimiter.getStats();
+    const tokenStats = tokenBucketLimiter.getStats();
 
     res.json({
         server: summary,
-        rateLimiter: limiterStats
+        rateLimiter: {
+            fixedWindow: fixedStats,
+            tokenBucket: tokenStats
+        }
     });
 });
 
@@ -99,31 +132,36 @@ app.get('/metrics', (req, res) => {
  * Algorithm info endpoint
  * Provides information about the current algorithm
  */
-app.get('/algorithm/info', (req, res) => {
+app.get('/algorithms', (req, res) => {
     res.json({
-        current: 'FixedWindow',
-        description: 'Fixed Window Counter algorithm divides time into fixed windows and counts requests within each window.',
-        config: {
-            windowMs: config.rateLimit.fixedWindow.windowMs,
-            windowSeconds: config.rateLimit.fixedWindow.windowMs / 1000,
-            maxRequests: config.rateLimit.fixedWindow.maxRequests,
-            requestsPerSecond: config.rateLimit.fixedWindow.maxRequests / (config.rateLimit.fixedWindow.windowMs / 1000)
-        },
-        complexity: {
-            time: 'O(1)',
-            space: 'O(n) where n = number of unique clients'
-        },
-        advantages: [
-            'Simple to implement',
-            'Memory efficient',
-            'Fast constant-time operations',
-            'Easy to understand'
+        available: [
+            {
+                name: 'FixedWindow',
+                endpoint: '/api/fixed/*',
+                description: 'Fixed time windows with request counting',
+                bestFor: 'Simple use cases, internal APIs'
+            },
+            {
+                name: 'TokenBucket',
+                endpoint: '/api/token/*',
+                description: 'Token-based with burst capability',
+                bestFor: 'Production APIs, bursty traffic'
+            }
         ],
-        disadvantages: [
-            'Boundary problem (can allow 2x requests at window edges)',
-            'Not perfectly fair',
-            'Sudden traffic spikes at window reset'
-        ]
+        comparison: {
+            boundary_problem: {
+                FixedWindow: 'Vulnerable',
+                TokenBucket: 'Not vulnerable'
+            },
+            burst_handling: {
+                FixedWindow: 'Poor',
+                TokenBucket: 'Excellent'
+            },
+            complexity: {
+                FixedWindow: 'O(1)',
+                TokenBucket: 'O(1)'
+            }
+        }
     });
 });
 
@@ -156,8 +194,7 @@ const server = app.listen(PORT, () => {
     logger.info(`Server started`, {
         port: PORT,
         environment: config.server.env,
-        algorithm: 'FixedWindow',
-        rateLimit: `${config.rateLimit.fixedWindow.maxRequests} requests per ${config.rateLimit.fixedWindow.windowMs / 1000} seconds`
+        algorithms: ['FixedWindow', 'TokenBucket']
     });
 });
 
@@ -167,6 +204,7 @@ process.on('SIGTERM', () => {
     server.close(() => {
         logger.info('Server closed');
         fixedWindowLimiter.stop();
+        tokenBucketLimiter.stop();
         process.exit(0);
     });
 });
