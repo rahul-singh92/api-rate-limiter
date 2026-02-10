@@ -52,8 +52,6 @@ const tokenBucketLimiter = new TokenBucket({
 app.use('/api/fixed', createRateLimiter(fixedWindowLimiter));
 app.use('/api/token', createRateLimiter(tokenBucketLimiter));
 
-// Default to Fixed Window for /api
-app.use('/api', createRateLimiter(fixedWindowLimiter));
 
 // ============================================
 // API Routes
