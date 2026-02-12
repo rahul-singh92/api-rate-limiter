@@ -10,7 +10,7 @@ const express = require('express');
 const config = require('./config/default');
 const logger = require('./utils/logger');
 const metrics = require('./utils/metrics');
-const { FixedWindow, TokenBucket } = require('./algorithms');
+const { FixedWindow, TokenBucket, LeakyBucket } = require('./algorithms');
 const createRateLimiter = require('./middleware/rateLimiter');
 
 // Initialize Express app
@@ -48,9 +48,17 @@ const tokenBucketLimiter = new TokenBucket({
     tokensPerRequest: 1
 });
 
+// Leaky Bucket Limiter
+const leakyBucketLimiter = new LeakyBucket({
+    capacity: 100,      // Queue up to 100 requests
+    leakRate: 10,       // Process 10 requests per second
+    queueRequests: false // Reject immediately when full
+});
+
 // Apply rate limiting to all /api routes
 app.use('/api/fixed', createRateLimiter(fixedWindowLimiter));
 app.use('/api/token', createRateLimiter(tokenBucketLimiter));
+app.use('/api/leaky', createRateLimiter(leakyBucketLimiter));
 
 
 // ============================================
@@ -90,6 +98,15 @@ app.get('/api/token/data', (req, res) => {
     });
 });
 
+// Leaky Bucket endpoints
+app.get('/api/leaky/data', (req, res) => {
+    res.json({
+        message: 'This endpoint uses Leaky Bucket rate limiting',
+        algorithm: 'LeakyBucket',
+        data: { timestamp: new Date().toISOString() }
+    });
+});
+
 // Generic endpoint (uses default Fixed Window)
 app.get('/api/data', (req, res) => {
     res.json({
@@ -116,12 +133,14 @@ app.get('/metrics', (req, res) => {
     const summary = metrics.getSummary();
     const fixedStats = fixedWindowLimiter.getStats();
     const tokenStats = tokenBucketLimiter.getStats();
+    const leakyStats = leakyBucketLimiter.getStats();
 
     res.json({
         server: summary,
         rateLimiter: {
             fixedWindow: fixedStats,
-            tokenBucket: tokenStats
+            tokenBucket: tokenStats,
+            leakyBucket: leakyStats
         }
     });
 });
@@ -144,20 +163,41 @@ app.get('/algorithms', (req, res) => {
                 endpoint: '/api/token/*',
                 description: 'Token-based with burst capability',
                 bestFor: 'Production APIs, bursty traffic'
+            },
+            {
+                name: 'LeakyBucket',
+                endpoint: '/api/leaky/*',
+                description: 'Constant rate processing, smooths all traffic',
+                bestFor: 'Network traffic shaping, guaranteed constant rate',
+                characteristics: {
+                    burstHandling: 'Rejects bursts',
+                    outputRate: 'Constant',
+                    boundaryProblem: 'No'
+                }
             }
         ],
         comparison: {
             boundary_problem: {
                 FixedWindow: 'Vulnerable',
-                TokenBucket: 'Not vulnerable'
+                TokenBucket: 'Not vulnerable',
+                LeakyBucket: 'Not vulnerable'
             },
             burst_handling: {
                 FixedWindow: 'Poor',
-                TokenBucket: 'Excellent'
+                TokenBucket: 'Excellent',
+                LeakyBucket: 'Reject Bursts'
             },
             complexity: {
                 FixedWindow: 'O(1)',
-                TokenBucket: 'O(1)'
+                TokenBucket: 'O(1)',
+                LeakyBucket: 'O(1)'
+            },
+            recommendation: {
+                'Web APIs': 'TokenBucket',
+                'Internal Tools': 'FixedWindow',
+                'Network QoS': 'LeakyBucket',
+                'Mobile Apps': 'TokenBucket',
+                'Video Streaming': 'LeakyBucket'
             }
         }
     });

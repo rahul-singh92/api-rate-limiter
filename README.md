@@ -108,8 +108,8 @@ Retry-After: 30
 ## Roadmap
 
 - [x] Fixed Window Algorithm
-- [ ] Token Bucket Algorithm
-- [ ] Leaky Bucket Algorithm
+- [x] Token Bucket Algorithm
+- [x] Leaky Bucket Algorithm
 - [ ] Sliding Window Log
 - [ ] Sliding Window Counter
 - [ ] Adaptive CPU-based limiting

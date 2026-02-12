@@ -12,6 +12,8 @@
     "test:detailed": "node tests/load/detailed-comparison.js",
     "test:visual": "node tests/load/visual-comparison.js",
     "test:all-load": "npm run test:boundary && npm run test:detailed",
+    "test:three": "node tests/load/three-algorithm-comparison.js",
+    "test:all-algorithms": "npm run test:three",
     "docs": "node scripts/generate-docs.js"
   },
   "keywords": [
