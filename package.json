@@ -6,8 +6,12 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "jest --coverage",
-    "test:watch": "jest --watch",
+    "test": "jest",
+    "test:boundary": "node tests/load/boundary-problem-demo.js",
+    "test:comparison": "node tests/load/algorithm-comparison.js",
+    "test:detailed": "node tests/load/detailed-comparison.js",
+    "test:visual": "node tests/load/visual-comparison.js",
+    "test:all-load": "npm run test:boundary && npm run test:detailed",
     "docs": "node scripts/generate-docs.js"
   },
   "keywords": [

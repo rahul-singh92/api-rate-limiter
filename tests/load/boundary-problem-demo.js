@@ -20,7 +20,7 @@ class BoundaryProblemDemo {
     constructor(config = {}) {
         this.host = config.host || 'localhost';
         this.port = config.port || 3000;
-        this.endpoint = config.endpoint || '/api/data';
+        this.endpoint = config.endpoint || '/api/fixed/data';
         this.requestsPerBurst = config.requestsPerBurst || 100;
         this.windowMs = config.windowMs || 60000;
     }
@@ -257,7 +257,7 @@ if (require.main === module) {
     const demo = new BoundaryProblemDemo({
         host: process.env.HOST || 'localhost',
         port: process.env.PORT || 3000,
-        endpoint: '/api/data',
+        endpoint: '/api/fixed/data',
         requestsPerBurst: 50, // Lower for demo purposes
         windowMs: 60000
     });
