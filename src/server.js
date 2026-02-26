@@ -10,7 +10,7 @@ const express = require('express');
 const config = require('./config/default');
 const logger = require('./utils/logger');
 const metrics = require('./utils/metrics');
-const { FixedWindow, TokenBucket, LeakyBucket } = require('./algorithms');
+const { FixedWindow, TokenBucket, LeakyBucket, SlidingWindowLog } = require('./algorithms');
 const createRateLimiter = require('./middleware/rateLimiter');
 
 // Initialize Express app
@@ -55,10 +55,17 @@ const leakyBucketLimiter = new LeakyBucket({
     queueRequests: false // Reject immediately when full
 });
 
+// Sliding Window Log
+const slidingWindowLogLimiter = new SlidingWindowLog({
+    windowMs: 60000,
+    maxRequests: 100
+});
+
 // Apply rate limiting to all /api routes
 app.use('/api/fixed', createRateLimiter(fixedWindowLimiter));
 app.use('/api/token', createRateLimiter(tokenBucketLimiter));
 app.use('/api/leaky', createRateLimiter(leakyBucketLimiter));
+app.use('/api/sliding', createRateLimiter(slidingWindowLogLimiter));
 
 
 // ============================================
@@ -107,6 +114,14 @@ app.get('/api/leaky/data', (req, res) => {
     });
 });
 
+app.get('/api/sliding/data', (req, res) => {
+    res.json({
+        message: 'This endpoint uses Sliding Window Log rate limiting',
+        algorithm: 'SlidingWindowLog',
+        data: { timestamp: new Date().toISOString() }
+    });
+});
+
 // Generic endpoint (uses default Fixed Window)
 app.get('/api/data', (req, res) => {
     res.json({
@@ -134,13 +149,15 @@ app.get('/metrics', (req, res) => {
     const fixedStats = fixedWindowLimiter.getStats();
     const tokenStats = tokenBucketLimiter.getStats();
     const leakyStats = leakyBucketLimiter.getStats();
+    const slidingStats = slidingWindowLogLimiter.getStats();
 
     res.json({
         server: summary,
         rateLimiter: {
             fixedWindow: fixedStats,
             tokenBucket: tokenStats,
-            leakyBucket: leakyStats
+            leakyBucket: leakyStats,
+            slidingStats: slidingWindowLogLimiter
         }
     });
 });
@@ -174,13 +191,21 @@ app.get('/algorithms', (req, res) => {
                     outputRate: 'Constant',
                     boundaryProblem: 'No'
                 }
+            },
+            {
+                name: 'SlidingWindowLog',
+                endpoint: 'api/sliding/*',
+                description: 'Precise sliding window with timestamp log',
+                bestFor: 'Low-traffic APIs requiring perfect accuracy',
+                complexity: { time: 'O(n)', space: 'O(n)' }
             }
         ],
         comparison: {
             boundary_problem: {
                 FixedWindow: 'Vulnerable',
                 TokenBucket: 'Not vulnerable',
-                LeakyBucket: 'Not vulnerable'
+                LeakyBucket: 'Not vulnerable',
+                SlidingWindowLog: 'Not Vulnerable'
             },
             burst_handling: {
                 FixedWindow: 'Poor',
@@ -243,6 +268,8 @@ process.on('SIGTERM', () => {
         logger.info('Server closed');
         fixedWindowLimiter.stop();
         tokenBucketLimiter.stop();
+        leakyBucketLimiter.stop();
+        slidingWindowLogLimiter.stop();
         process.exit(0);
     });
 });

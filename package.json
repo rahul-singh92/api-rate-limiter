@@ -14,6 +14,7 @@
     "test:all-load": "npm run test:boundary && npm run test:detailed",
     "test:three": "node tests/load/three-algorithm-comparison.js",
     "test:all-algorithms": "npm run test:three",
+    "test:sliding": "node tests/load/sliding-window-comparison.js",
     "docs": "node scripts/generate-docs.js"
   },
   "keywords": [
