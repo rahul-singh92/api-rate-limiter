@@ -160,7 +160,7 @@ Retry-After: 30
 - [x] Fixed Window Algorithm
 - [x] Token Bucket Algorithm
 - [x] Leaky Bucket Algorithm
-- [ ] Sliding Window Log
+- [x] Sliding Window Log
 - [ ] Sliding Window Counter
 - [ ] Adaptive CPU-based limiting
 - [ ] ML-powered prediction
