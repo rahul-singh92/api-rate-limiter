@@ -161,7 +161,8 @@ Retry-After: 30
 - [x] Token Bucket Algorithm
 - [x] Leaky Bucket Algorithm
 - [x] Sliding Window Log
-- [ ] Sliding Window Counter
+- [x] Sliding Window Counter
+- [x] Priority Based Rate limiting
 - [ ] Adaptive CPU-based limiting
 - [ ] ML-powered prediction
 
