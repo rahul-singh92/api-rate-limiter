@@ -1,40 +1,9 @@
 /**
  * Reputation-Based Rate Limiting Middleware
- * 
- * This middleware applies reputation-based rate limiting and
- * automatically reports request outcomes to update reputation scores
  */
 
 const logger = require('../utils/logger');
-
-/**
- * Get client identifier
- */
-function getClientId(req) {
-  // Check X-Forwarded-For header
-  let ip = req.headers['x-forwarded-for'];
-  
-  if (!ip) {
-    ip = req.ip || req.connection.remoteAddress || '127.0.0.1';
-  }
-  
-  // Extract first IP if comma-separated
-  if (ip.includes(',')) {
-    ip = ip.split(',')[0].trim();
-  }
-  
-  // Clean up IPv6
-  if (ip === '::1' || ip === '::ffff:127.0.0.1') {
-    ip = '127.0.0.1';
-  }
-  
-  // In production, you might also include user ID
-  // if (req.user && req.user.id) {
-  //   return `user:${req.user.id}`;
-  // }
-  
-  return ip;
-}
+const { getClientId } = require('../utils/clientId');
 
 /**
  * Create reputation rate limiter middleware
@@ -54,9 +23,9 @@ function createReputationRateLimiter(limiter) {
       res.setHeader('X-RateLimit-Reputation-Score', result.reputation.score);
       res.setHeader('X-RateLimit-Reputation-Tier', result.reputation.tier);
       res.setHeader('X-RateLimit-Success-Rate', result.reputation.successRate);
+      res.setHeader('X-RateLimit-Client-ID', clientId); // Added for debugging
       
       if (!result.allowed) {
-        // Rate limit exceeded
         res.setHeader('Retry-After', result.retryAfter);
         
         return res.status(429).json({
@@ -72,7 +41,7 @@ function createReputationRateLimiter(limiter) {
         });
       }
       
-      // Store rate limit info and clientId for later outcome reporting
+      // Store info for response
       req.rateLimit = result;
       req.rateLimitClientId = clientId;
       
@@ -80,7 +49,6 @@ function createReputationRateLimiter(limiter) {
       const originalSend = res.send;
       const originalJson = res.json;
       
-      // Flag to ensure we only report once
       let outcomeReported = false;
       
       const reportOutcome = async () => {
@@ -90,7 +58,6 @@ function createReputationRateLimiter(limiter) {
         const statusCode = res.statusCode;
         const success = statusCode >= 200 && statusCode < 400;
         
-        // Report outcome to update reputation
         await limiter.reportOutcome(clientId, success, statusCode);
         
         logger.debug('Request outcome reported', {
@@ -101,19 +68,16 @@ function createReputationRateLimiter(limiter) {
         });
       };
       
-      // Override res.send
       res.send = function(data) {
         reportOutcome();
         return originalSend.call(this, data);
       };
       
-      // Override res.json
       res.json = function(data) {
         reportOutcome();
         return originalJson.call(this, data);
       };
       
-      // Also handle response finish event as fallback
       res.on('finish', () => {
         reportOutcome();
       });
@@ -126,7 +90,6 @@ function createReputationRateLimiter(limiter) {
         clientId
       });
       
-      // Fail open
       next();
     }
   };

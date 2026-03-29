@@ -22,6 +22,7 @@ const {
 const createRateLimiter = require('./middleware/rateLimiter');
 const createPriorityRateLimiter = require('./middleware/priorityRateLimiter');
 const createReputationRateLimiter = require('./middleware/reputationRateLimiter');
+const { getClientId } = require('./utils/clientId');
 
 // Initialize Express app
 const app = express();
@@ -284,26 +285,36 @@ app.get('/api/reputation/bad', (req, res) => {
 /**
  * Get reputation status
  */
+/**
+ * Get reputation status
+ */
 app.get('/api/reputation/status', (req, res) => {
-  const clientId = req.ip || '127.0.0.1';
+  const clientId = getClientId(req);
   const state = reputationBasedLimiter.getClientState(clientId);
   
   if (!state) {
     return res.json({
       message: 'No reputation data yet',
-      tip: 'Make some requests to build reputation'
+      tip: 'Make some requests to /api/reputation/data to build reputation',
+      clientId: clientId,
+      debug: {
+        'x-forwarded-for': req.headers['x-forwarded-for'] || 'not set',
+        'req.ip': req.ip || 'not set',
+        'detected': clientId
+      }
     });
   }
   
   res.json({
+    clientId: clientId,
     reputation: state,
     tiers: {
-      excellent: '0.95-1.0: 200 capacity, 20/s refill',
-      good: '0.80-0.94: 150 capacity, 15/s refill',
-      fair: '0.60-0.79: 100 capacity, 10/s refill',
-      poor: '0.40-0.59: 50 capacity, 5/s refill',
-      bad: '0.20-0.39: 20 capacity, 2/s refill',
-      malicious: '0.0-0.19: 5 capacity, 0.5/s refill'
+      excellent: '🟢 0.95-1.0: 200 capacity, 20/s refill',
+      good: '🔵 0.80-0.94: 150 capacity, 15/s refill',
+      fair: '🟡 0.60-0.79: 100 capacity, 10/s refill',
+      poor: '🟠 0.40-0.59: 50 capacity, 5/s refill',
+      bad: '🔴 0.20-0.39: 20 capacity, 2/s refill',
+      malicious: '⛔ 0.0-0.19: 5 capacity, 0.5/s refill'
     },
     howToImprove: state.tier === 'Poor' || state.tier === 'Bad' || state.tier === 'Malicious'
       ? 'Make successful requests (2xx status) to improve your score'
