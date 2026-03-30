@@ -12,6 +12,7 @@ const SlidingWindowLogRateLimiter = require('./SlidingWindowLog');
 const SlidingWindowCounterRateLimiter = require('./SlidingWindowCounter');
 const PriorityTokenBucketRateLimiter = require('./PriorityTokenBucket');
 const ReputationBasedRateLimiter = require('./ReputationBasedRateLimiter');
+const HybridAdaptiveRateLimiter = require('./HybridAdaptiveRateLimiter');
 
 module.exports = {
   FixedWindow: FixedWindowRateLimiter,
@@ -21,5 +22,6 @@ module.exports = {
   SlidingWindowCounter: SlidingWindowCounterRateLimiter,
   PriorityTokenBucket: PriorityTokenBucketRateLimiter,
   ReputationBased: ReputationBasedRateLimiter,
+  HybridAdaptive: HybridAdaptiveRateLimiter,
   // Future algorithms will be added here:
 };

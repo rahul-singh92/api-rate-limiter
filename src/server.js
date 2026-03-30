@@ -10,18 +10,20 @@ const express = require('express');
 const config = require('./config/default');
 const logger = require('./utils/logger');
 const metrics = require('./utils/metrics');
-const { 
-  FixedWindow, 
-  TokenBucket, 
-  LeakyBucket, 
+const {
+  FixedWindow,
+  TokenBucket,
+  LeakyBucket,
   SlidingWindowLog,
   SlidingWindowCounter,
   PriorityTokenBucket,
-  ReputationBased
+  ReputationBased,
+  HybridAdaptive
 } = require('./algorithms');
 const createRateLimiter = require('./middleware/rateLimiter');
 const createPriorityRateLimiter = require('./middleware/priorityRateLimiter');
 const createReputationRateLimiter = require('./middleware/reputationRateLimiter');
+const createHybridRateLimiter = require('./middleware/hybridRateLimiter');
 const { getClientId } = require('./utils/clientId');
 
 // Initialize Express app
@@ -91,6 +93,18 @@ const reputationBasedLimiter = new ReputationBased({
   minRequests: 10       // Need 10 requests before scoring
 });
 
+const hybridAdaptiveLimiter = new HybridAdaptive({
+  endpointCosts: {
+    'GET:/api/hybrid/simple': 1,
+    'GET:/api/hybrid/data': 1,
+    'GET:/api/hybrid/search': 5,
+    'POST:/api/hybrid/create': 10,
+    'POST:/api/hybrid/export': 50,
+    'POST:/api/hybrid/compute': 100
+  },
+  reputationWindow: 100
+});
+
 
 // ============================================
 // Apply Rate Limiting Middleware
@@ -103,6 +117,7 @@ app.use('/api/sliding', createRateLimiter(slidingWindowLogLimiter));
 app.use('/api/counter', createRateLimiter(slidingWindowCounterLimiter));
 app.use('/api/priority', createPriorityRateLimiter(priorityTokenBucketLimiter));
 app.use('/api/reputation', createReputationRateLimiter(reputationBasedLimiter));
+app.use('/api/hybrid', createHybridRateLimiter(hybridAdaptiveLimiter));
 
 // Default rate limiting for generic /api routes
 app.use('/api', createRateLimiter(fixedWindowLimiter));
@@ -120,13 +135,14 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     algorithms: [
-      'FixedWindow', 
-      'TokenBucket', 
-      'LeakyBucket', 
-      'SlidingWindowLog', 
+      'FixedWindow',
+      'TokenBucket',
+      'LeakyBucket',
+      'SlidingWindowLog',
       'SlidingWindowCounter',
       'PriorityTokenBucket',
-      'ReputationBased'
+      'ReputationBased',
+      'HybridAdaptive'
     ]
   });
 });
@@ -138,7 +154,7 @@ app.get('/api/fixed/data', (req, res) => {
   res.json({
     message: 'This endpoint uses Fixed Window rate limiting',
     algorithm: 'FixedWindow',
-    data: { 
+    data: {
       timestamp: new Date().toISOString(),
       characteristics: {
         complexity: 'O(1)',
@@ -156,7 +172,7 @@ app.get('/api/token/data', (req, res) => {
   res.json({
     message: 'This endpoint uses Token Bucket rate limiting',
     algorithm: 'TokenBucket',
-    data: { 
+    data: {
       timestamp: new Date().toISOString(),
       characteristics: {
         complexity: 'O(1)',
@@ -174,7 +190,7 @@ app.get('/api/leaky/data', (req, res) => {
   res.json({
     message: 'This endpoint uses Leaky Bucket rate limiting',
     algorithm: 'LeakyBucket',
-    data: { 
+    data: {
       timestamp: new Date().toISOString(),
       characteristics: {
         complexity: 'O(1)',
@@ -192,7 +208,7 @@ app.get('/api/sliding/data', (req, res) => {
   res.json({
     message: 'This endpoint uses Sliding Window Log rate limiting',
     algorithm: 'SlidingWindowLog',
-    data: { 
+    data: {
       timestamp: new Date().toISOString(),
       characteristics: {
         complexity: 'O(n)',
@@ -210,7 +226,7 @@ app.get('/api/counter/data', (req, res) => {
   res.json({
     message: 'This endpoint uses Sliding Window Counter rate limiting',
     algorithm: 'SlidingWindowCounter',
-    data: { 
+    data: {
       timestamp: new Date().toISOString(),
       characteristics: {
         complexity: 'O(1)',
@@ -230,7 +246,7 @@ app.get('/api/counter/data', (req, res) => {
 app.get('/api/priority/data', (req, res) => {
   // Get rate limit info from middleware
   const rateLimit = req.rateLimit || {};
-  
+
   res.json({
     message: 'This endpoint uses Priority Token Bucket rate limiting',
     algorithm: 'PriorityTokenBucket',
@@ -239,7 +255,7 @@ app.get('/api/priority/data', (req, res) => {
     remaining: rateLimit.remaining,
     tier: rateLimit.tier,
     metadata: rateLimit.metadata,
-    data: { 
+    data: {
       timestamp: new Date().toISOString(),
       characteristics: {
         complexity: 'O(1)',
@@ -253,7 +269,7 @@ app.get('/api/priority/data', (req, res) => {
 app.get('/api/reputation/data', (req, res) => {
   // Get rate limit info
   const rateLimit = req.rateLimit || {};
-  
+
   res.json({
     message: 'This endpoint uses Reputation-Based rate limiting',
     algorithm: 'ReputationBased',
@@ -262,7 +278,7 @@ app.get('/api/reputation/data', (req, res) => {
     remaining: rateLimit.remaining,
     reputation: rateLimit.reputation,
     metadata: rateLimit.metadata,
-    data: { 
+    data: {
       timestamp: new Date().toISOString(),
       characteristics: {
         adaptive: 'Yes',
@@ -291,7 +307,7 @@ app.get('/api/reputation/bad', (req, res) => {
 app.get('/api/reputation/status', (req, res) => {
   const clientId = getClientId(req);
   const state = reputationBasedLimiter.getClientState(clientId);
-  
+
   if (!state) {
     return res.json({
       message: 'No reputation data yet',
@@ -304,7 +320,7 @@ app.get('/api/reputation/status', (req, res) => {
       }
     });
   }
-  
+
   res.json({
     clientId: clientId,
     reputation: state,
@@ -461,6 +477,232 @@ app.get('/api/priority/tiers', (req, res) => {
   });
 });
 
+// endpoints for hybrid adaptive rate limiter
+app.get('/api/hybrid/simple', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+
+  res.json({
+    message: 'Simple operation - costs 1 token',
+    algorithm: 'HybridAdaptive',
+    cost: 1,
+    tier: rateLimit.tier,
+    reputation: rateLimit.reputation,
+    performance: rateLimit.performance,
+    data: { timestamp: new Date().toISOString() }
+  });
+});
+
+app.get('/api/hybrid/data', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+
+  res.json({
+    message: 'Standard data retrieval - costs 1 token',
+    algorithm: 'HybridAdaptive',
+    cost: 1,
+    tier: rateLimit.tier,
+    reputation: rateLimit.reputation,
+    performance: rateLimit.performance,
+    data: {
+      timestamp: new Date().toISOString(),
+      records: ['item1', 'item2', 'item3']
+    }
+  });
+});
+
+app.get('/api/hybrid/search', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+  const query = req.query.q || '';
+
+  res.json({
+    message: 'Complex search - costs 5 tokens',
+    algorithm: 'HybridAdaptive',
+    cost: 5,
+    query: query,
+    tier: rateLimit.tier,
+    reputation: rateLimit.reputation,
+    performance: rateLimit.performance,
+    results: [
+      { id: 1, title: 'Result 1', score: 0.95 },
+      { id: 2, title: 'Result 2', score: 0.87 }
+    ]
+  });
+});
+
+app.post('/api/hybrid/create', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+
+  res.json({
+    message: 'Create operation - costs 10 tokens',
+    algorithm: 'HybridAdaptive',
+    cost: 10,
+    tier: rateLimit.tier,
+    reputation: rateLimit.reputation,
+    performance: rateLimit.performance,
+    created: {
+      id: Math.floor(Math.random() * 10000),
+      timestamp: new Date().toISOString()
+    }
+  });
+});
+
+app.post('/api/hybrid/export', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+
+  res.json({
+    message: 'Heavy export operation - costs 50 tokens',
+    algorithm: 'HybridAdaptive',
+    cost: 50,
+    tier: rateLimit.tier,
+    reputation: rateLimit.reputation,
+    performance: rateLimit.performance,
+    export: {
+      format: 'CSV',
+      size: '15MB',
+      downloadUrl: '/downloads/export_' + Date.now() + '.csv'
+    }
+  });
+});
+
+app.post('/api/hybrid/compute', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+
+  res.json({
+    message: 'Very expensive computation - costs 100 tokens',
+    algorithm: 'HybridAdaptive',
+    cost: 100,
+    tier: rateLimit.tier,
+    reputation: rateLimit.reputation,
+    performance: rateLimit.performance,
+    computation: {
+      type: 'ML Model Training',
+      duration: '45 seconds',
+      result: 'Completed'
+    }
+  });
+});
+
+// Bad endpoint for testing (causes failures)
+app.get('/api/hybrid/bad', (req, res) => {
+  res.status(400).json({
+    error: 'Bad Request',
+    message: 'This simulates a bad request to test reputation tracking',
+    impact: 'This will decrease your reputation multiplier'
+  });
+});
+
+// Status endpoint
+app.get('/api/hybrid/status', (req, res) => {
+  const clientId = getClientId(req);
+  const state = hybridAdaptiveLimiter.getClientState(clientId);
+
+  if (!state) {
+    return res.json({
+      message: 'No data yet',
+      tip: 'Make some requests to build history',
+      clientId: clientId
+    });
+  }
+
+  res.json({
+    clientId: clientId,
+    state: state,
+    endpointCosts: {
+      'GET /simple': '1 token (simple)',
+      'GET /data': '1 token (standard)',
+      'GET /search': '5 tokens (complex)',
+      'POST /create': '10 tokens (write)',
+      'POST /export': '50 tokens (heavy)',
+      'POST /compute': '100 tokens (very expensive)'
+    },
+    formula: {
+      actualRate: 'base_rate × priority_multiplier × reputation_multiplier',
+      example: state.actualRefillRate,
+      breakdown: `${state.baseRate} × ${state.priorityMultiplier} × ${state.reputationMultiplier}`
+    }
+  });
+});
+
+// Costs endpoint
+app.get('/api/hybrid/costs', (req, res) => {
+  res.json({
+    endpointCosts: {
+      simple: {
+        path: '/api/hybrid/simple',
+        method: 'GET',
+        cost: 1,
+        description: 'Simple data retrieval'
+      },
+      data: {
+        path: '/api/hybrid/data',
+        method: 'GET',
+        cost: 1,
+        description: 'Standard data retrieval'
+      },
+      search: {
+        path: '/api/hybrid/search',
+        method: 'GET',
+        cost: 5,
+        description: 'Complex search query'
+      },
+      create: {
+        path: '/api/hybrid/create',
+        method: 'POST',
+        cost: 10,
+        description: 'Create new resource'
+      },
+      export: {
+        path: '/api/hybrid/export',
+        method: 'POST',
+        cost: 50,
+        description: 'Heavy export operation'
+      },
+      compute: {
+        path: '/api/hybrid/compute',
+        method: 'POST',
+        cost: 100,
+        description: 'Very expensive computation'
+      }
+    },
+    tiers: {
+      anonymous: {
+        baseCapacity: 10,
+        baseRate: '1 token/s',
+        priorityMultiplier: 0.8,
+        worstCase: '0.5 × 0.8 × 1 = 0.4 tokens/s',
+        bestCase: '1.5 × 0.8 × 1 = 1.2 tokens/s'
+      },
+      free: {
+        baseCapacity: 50,
+        baseRate: '5 tokens/s',
+        priorityMultiplier: 1.0,
+        worstCase: '0.5 × 1.0 × 5 = 2.5 tokens/s',
+        bestCase: '1.5 × 1.0 × 5 = 7.5 tokens/s'
+      },
+      premium: {
+        baseCapacity: 200,
+        baseRate: '20 tokens/s',
+        priorityMultiplier: 1.5,
+        worstCase: '0.5 × 1.5 × 20 = 15 tokens/s',
+        bestCase: '1.5 × 1.5 × 20 = 45 tokens/s'
+      },
+      enterprise: {
+        baseCapacity: 1000,
+        baseRate: '100 tokens/s',
+        priorityMultiplier: 2.0,
+        worstCase: '0.5 × 2.0 × 100 = 100 tokens/s',
+        bestCase: '1.5 × 2.0 × 100 = 300 tokens/s'
+      }
+    },
+    reputationMultipliers: {
+      excellent: '1.5 (success rate ≥ 95%)',
+      good: '1.2 (success rate ≥ 85%)',
+      fair: '1.0 (success rate ≥ 70%)',
+      poor: '0.8 (success rate ≥ 50%)',
+      bad: '0.5 (success rate < 50%)'
+    }
+  });
+});
+
 /**
  * Generic endpoint
  */
@@ -488,7 +730,7 @@ app.post('/api/submit', (req, res) => {
  */
 app.get('/metrics', (req, res) => {
   const summary = metrics.getSummary();
-  
+
   res.json({
     server: summary,
     rateLimiters: {
@@ -498,7 +740,8 @@ app.get('/metrics', (req, res) => {
       slidingWindowLog: slidingWindowLogLimiter.getStats(),
       slidingWindowCounter: slidingWindowCounterLimiter.getStats(),
       priorityTokenBucket: priorityTokenBucketLimiter.getStats(),
-      reputationBased: reputationBasedLimiter.getStats()
+      reputationBased: reputationBasedLimiter.getStats(),
+      hybridAdaptive: hybridAdaptiveLimiter.getStats()
     }
   });
 });
@@ -562,6 +805,12 @@ app.get('/algorithms', (req, res) => {
         endpoint: '/api/reputation/*',
         description: 'Adaptive rate limiting based on behavior',
         bestFor: 'Bot protection, Auto-defense, Smart APIs'
+      },
+      {
+        name: 'HybridAdaptive',
+        endpoint: '/api/hybrid/*',
+        description: 'Ultimate: Priority + Reputation + Endpoint Costs',
+        bestFor: 'Production SaaS (BEST)'
       }
     ],
     recommendations: {
@@ -572,7 +821,8 @@ app.get('/algorithms', (req, res) => {
       'Perfect Accuracy': 'SlidingWindowLog',
       'Constant Rate': 'LeakyBucket',
       'SaaS/Multi-tenant': 'PriorityTokenBucket',
-      'Learning': 'FixedWindow'
+      'Learning': 'FixedWindow',
+      'Production SaaS': 'HybridAdaptive',
     }
   });
 });
@@ -582,7 +832,7 @@ app.get('/algorithms', (req, res) => {
  */
 app.get('/algorithm/info/:name', (req, res) => {
   const { name } = req.params;
-  
+
   const algorithms = {
     fixed: {
       name: 'Fixed Window',
@@ -608,21 +858,25 @@ app.get('/algorithm/info/:name', (req, res) => {
       name: 'Priority Token Bucket',
       config: priorityTokenBucketLimiter.getStats()
     },
-     reputation: {
+    reputation: {
       name: 'Reputation Based',
       config: reputationBasedLimiter.getStats()
+    },
+    hybrid: { 
+      name: 'Hybrid Adaptive', 
+      config: hybridAdaptiveLimiter.getStats() 
     }
   };
-  
+
   const algo = algorithms[name.toLowerCase()];
-  
+
   if (!algo) {
     return res.status(404).json({
       error: 'Algorithm not found',
-      available: ['fixed', 'token', 'leaky', 'sliding', 'counter', 'priority', 'reputation']
+      available: ['fixed', 'token', 'leaky', 'sliding', 'counter', 'priority', 'reputation','hybrid']
     });
   }
-  
+
   res.json(algo);
 });
 
@@ -679,16 +933,17 @@ const server = app.listen(PORT, () => {
     port: PORT,
     environment: config.server.env,
     algorithms: [
-      'FixedWindow', 
-      'TokenBucket', 
-      'LeakyBucket', 
-      'SlidingWindowLog', 
+      'FixedWindow',
+      'TokenBucket',
+      'LeakyBucket',
+      'SlidingWindowLog',
       'SlidingWindowCounter',
       'PriorityTokenBucket',
-      'ReputationBased'
+      'ReputationBased',
+      'HybridAdaptive'
     ]
   });
-  
+
   console.log(`\n🚀 API Rate Limiter Server running on port ${PORT}`);
   console.log(`\n📊 Available Algorithms:`);
   console.log(`   • Fixed Window:           http://localhost:${PORT}/api/fixed/data`);
@@ -698,6 +953,7 @@ const server = app.listen(PORT, () => {
   console.log(`   • Sliding Window Counter: http://localhost:${PORT}/api/counter/data`);
   console.log(`   • Priority Token Bucket:  http://localhost:${PORT}/api/priority/data`);
   console.log(`   • Reputation Based:       http://localhost:${PORT}/api/reputation/data`);
+  console.log(`   • Hybrid Adaptive:        http://localhost:${PORT}/api/hybrid/data`);
   console.log(`\n📈 Utilities:`);
   console.log(`   • Metrics:                http://localhost:${PORT}/metrics`);
   console.log(`   • Algorithms Info:        http://localhost:${PORT}/algorithms`);
@@ -721,6 +977,7 @@ process.on('SIGTERM', () => {
     slidingWindowCounterLimiter.stop();
     priorityTokenBucketLimiter.stop();
     reputationBasedLimiter.stop();
+    hybridAdaptiveLimiter.stop();
     process.exit(0);
   });
 });
@@ -736,6 +993,7 @@ process.on('SIGINT', () => {
     slidingWindowCounterLimiter.stop();
     priorityTokenBucketLimiter.stop();
     reputationBasedLimiter.stop();
+    hybridAdaptiveLimiter.stop();
     process.exit(0);
   });
 });
