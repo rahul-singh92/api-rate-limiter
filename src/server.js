@@ -18,12 +18,14 @@ const {
   SlidingWindowCounter,
   PriorityTokenBucket,
   ReputationBased,
-  HybridAdaptive
+  HybridAdaptive,
+  CpuAdaptive
 } = require('./algorithms');
 const createRateLimiter = require('./middleware/rateLimiter');
 const createPriorityRateLimiter = require('./middleware/priorityRateLimiter');
 const createReputationRateLimiter = require('./middleware/reputationRateLimiter');
 const createHybridRateLimiter = require('./middleware/hybridRateLimiter');
+const createCpuRateLimiter = require('./middleware/cpuRateLimiter');
 const { getClientId } = require('./utils/clientId');
 
 // Initialize Express app
@@ -87,12 +89,14 @@ const priorityTokenBucketLimiter = new PriorityTokenBucket({
   enablePriorityQueue: false
 });
 
+// Reputation Based Limiter
 const reputationBasedLimiter = new ReputationBased({
   windowSize: 100,      // Track last 100 requests
   decayFactor: 0.7,     // 70% weight to recent behavior
   minRequests: 10       // Need 10 requests before scoring
 });
 
+// Hybrid Adaptive Limiter
 const hybridAdaptiveLimiter = new HybridAdaptive({
   endpointCosts: {
     'GET:/api/hybrid/simple': 1,
@@ -103,6 +107,14 @@ const hybridAdaptiveLimiter = new HybridAdaptive({
     'POST:/api/hybrid/compute': 100
   },
   reputationWindow: 100
+});
+
+// CPU Adaptive Limiter
+const cpuAdaptiveLimiter = new CpuAdaptive({
+  baseCapacity: 100,
+  baseRefillRate: 10,
+  cpuCheckInterval: 1000,    // Check CPU every second
+  smoothingFactor: 0.3        // 30% current, 70% previous
 });
 
 
@@ -118,6 +130,7 @@ app.use('/api/counter', createRateLimiter(slidingWindowCounterLimiter));
 app.use('/api/priority', createPriorityRateLimiter(priorityTokenBucketLimiter));
 app.use('/api/reputation', createReputationRateLimiter(reputationBasedLimiter));
 app.use('/api/hybrid', createHybridRateLimiter(hybridAdaptiveLimiter));
+app.use('/api/cpu', createCpuRateLimiter(cpuAdaptiveLimiter));
 
 // Default rate limiting for generic /api routes
 app.use('/api', createRateLimiter(fixedWindowLimiter));
@@ -142,7 +155,8 @@ app.get('/health', (req, res) => {
       'SlidingWindowCounter',
       'PriorityTokenBucket',
       'ReputationBased',
-      'HybridAdaptive'
+      'HybridAdaptive',
+      'CpuAdaptive'
     ]
   });
 });
@@ -703,6 +717,121 @@ app.get('/api/hybrid/costs', (req, res) => {
   });
 });
 
+// CPU Based
+app.get('/api/cpu/data', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+  
+  res.json({
+    message: 'This endpoint uses CPU-based adaptive rate limiting',
+    algorithm: 'CpuAdaptive',
+    cpuStatus: rateLimit.cpuStatus,
+    limits: rateLimit.limits,
+    data: { 
+      timestamp: new Date().toISOString(),
+      serverTime: Date.now()
+    }
+  });
+});
+
+// CPU-intensive operation (simulates heavy load)
+app.post('/api/cpu/heavy', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+  
+  // Simulate CPU-intensive work
+  const start = Date.now();
+  let result = 0;
+  
+  // Burn some CPU cycles
+  for (let i = 0; i < 10000000; i++) {
+    result += Math.sqrt(i);
+  }
+  
+  const duration = Date.now() - start;
+  
+  res.json({
+    message: 'Heavy computation completed',
+    algorithm: 'CpuAdaptive',
+    cpuStatus: rateLimit.cpuStatus,
+    limits: rateLimit.limits,
+    computation: {
+      duration: duration + 'ms',
+      result: result.toFixed(2)
+    }
+  });
+});
+
+// Get CPU status
+app.get('/api/cpu/status', (req, res) => {
+  const clientId = getClientId(req);
+  const state = cpuAdaptiveLimiter.getClientState(clientId);
+  const stats = cpuAdaptiveLimiter.getStats();
+  
+  res.json({
+    clientId: clientId,
+    clientState: state,
+    systemStatus: stats.cpuStatus,
+    currentLimits: stats.limits,
+    multiplier: stats.multiplier,
+    cpuLevels: {
+      idle: '0-30%: 1.5x multiplier (boost)',
+      normal: '30-50%: 1.0x multiplier (normal)',
+      moderate: '50-70%: 0.8x multiplier (slight reduction)',
+      high: '70-85%: 0.5x multiplier (reduce)',
+      critical: '85-95%: 0.3x multiplier (heavy reduction)',
+      emergency: '95-100%: 0.1x multiplier (emergency)'
+    },
+    explanation: {
+      howItWorks: 'Rate limits automatically adjust based on system CPU usage',
+      formula: 'actual_limit = base_limit × cpu_multiplier × smoothing_factor',
+      smoothing: 'Prevents rapid oscillation using exponential moving average',
+      protection: 'Automatically reduces limits during high CPU to protect system'
+    }
+  });
+});
+
+// Get CPU metrics
+app.get('/api/cpu/metrics', (req, res) => {
+  const stats = cpuAdaptiveLimiter.getStats();
+  
+  res.json({
+    algorithm: stats.algorithm,
+    cpuStatus: stats.cpuStatus,
+    currentLimits: stats.limits,
+    multiplier: stats.multiplier,
+    activeClients: stats.activeClients,
+    config: stats.config,
+    cpuLevels: stats.cpuLevels
+  });
+});
+
+// Simulate CPU load (for testing)
+app.post('/api/cpu/simulate-load', (req, res) => {
+  const duration = parseInt(req.query.duration) || 5000; // Default 5 seconds
+  const intensity = parseInt(req.query.intensity) || 50; // 1-100
+  
+  res.json({
+    message: `Simulating CPU load for ${duration}ms at ${intensity}% intensity`,
+    warning: 'This will increase CPU usage temporarily',
+    note: 'Watch /api/cpu/status to see rate limits adjust'
+  });
+  
+  // Simulate CPU load in background
+  const startTime = Date.now();
+  const interval = setInterval(() => {
+    // Burn CPU cycles based on intensity
+    for (let i = 0; i < intensity * 100000; i++) {
+      Math.sqrt(i);
+    }
+    
+    if (Date.now() - startTime > duration) {
+      clearInterval(interval);
+      logger.info('CPU load simulation completed', { duration, intensity });
+    }
+  }, 10);
+});
+
+
+
 /**
  * Generic endpoint
  */
@@ -741,7 +870,8 @@ app.get('/metrics', (req, res) => {
       slidingWindowCounter: slidingWindowCounterLimiter.getStats(),
       priorityTokenBucket: priorityTokenBucketLimiter.getStats(),
       reputationBased: reputationBasedLimiter.getStats(),
-      hybridAdaptive: hybridAdaptiveLimiter.getStats()
+      hybridAdaptive: hybridAdaptiveLimiter.getStats(),
+      cpuAdaptive: cpuAdaptiveLimiter.getStats()
     }
   });
 });
@@ -811,11 +941,17 @@ app.get('/algorithms', (req, res) => {
         endpoint: '/api/hybrid/*',
         description: 'Ultimate: Priority + Reputation + Endpoint Costs',
         bestFor: 'Production SaaS (BEST)'
+      },
+      {
+        name: 'CpuAdaptive',
+        endpoint: '/api/cpu/*',
+        description: 'CPU-based automatic adjustment',
+        bestFor: 'Self-protecting systems'
       }
     ],
     recommendations: {
       'Most Web APIs': 'SlidingWindowCounter or TokenBucket',
-      'High Traffic': 'SlidingWindowCounter',
+      'High Traffic': 'SlidingWindowCounter or CPU Adaptive',
       'Need Bursts': 'TokenBucket',
       'Bot Protection': 'ReputationBased',
       'Perfect Accuracy': 'SlidingWindowLog',
@@ -823,6 +959,8 @@ app.get('/algorithms', (req, res) => {
       'SaaS/Multi-tenant': 'PriorityTokenBucket',
       'Learning': 'FixedWindow',
       'Production SaaS': 'HybridAdaptive',
+      'Self-Protecting Systems': 'CpuAdaptive',
+      'Auto Scaling': 'CPU Adaptive'
     }
   });
 });
@@ -865,6 +1003,10 @@ app.get('/algorithm/info/:name', (req, res) => {
     hybrid: { 
       name: 'Hybrid Adaptive', 
       config: hybridAdaptiveLimiter.getStats() 
+    },
+    cpu: { 
+      name: 'CPU Adaptive', 
+      config: cpuAdaptiveLimiter.getStats() 
     }
   };
 
@@ -873,7 +1015,7 @@ app.get('/algorithm/info/:name', (req, res) => {
   if (!algo) {
     return res.status(404).json({
       error: 'Algorithm not found',
-      available: ['fixed', 'token', 'leaky', 'sliding', 'counter', 'priority', 'reputation','hybrid']
+      available: ['fixed', 'token', 'leaky', 'sliding', 'counter', 'priority', 'reputation','hybrid', 'cpu']
     });
   }
 
@@ -940,7 +1082,8 @@ const server = app.listen(PORT, () => {
       'SlidingWindowCounter',
       'PriorityTokenBucket',
       'ReputationBased',
-      'HybridAdaptive'
+      'HybridAdaptive',
+      'CpuAdaptive'
     ]
   });
 
@@ -954,6 +1097,7 @@ const server = app.listen(PORT, () => {
   console.log(`   • Priority Token Bucket:  http://localhost:${PORT}/api/priority/data`);
   console.log(`   • Reputation Based:       http://localhost:${PORT}/api/reputation/data`);
   console.log(`   • Hybrid Adaptive:        http://localhost:${PORT}/api/hybrid/data`);
+  console.log(`   • CPU Adaptive:           http://localhost:${PORT}/api/cpu/data`);
   console.log(`\n📈 Utilities:`);
   console.log(`   • Metrics:                http://localhost:${PORT}/metrics`);
   console.log(`   • Algorithms Info:        http://localhost:${PORT}/algorithms`);
@@ -978,6 +1122,7 @@ process.on('SIGTERM', () => {
     priorityTokenBucketLimiter.stop();
     reputationBasedLimiter.stop();
     hybridAdaptiveLimiter.stop();
+    cpuAdaptiveLimiter.stop();
     process.exit(0);
   });
 });
@@ -994,6 +1139,7 @@ process.on('SIGINT', () => {
     priorityTokenBucketLimiter.stop();
     reputationBasedLimiter.stop();
     hybridAdaptiveLimiter.stop();
+    cpuAdaptiveLimiter.stop();
     process.exit(0);
   });
 });
