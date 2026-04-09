@@ -1,240 +1,261 @@
 # API Endpoints Documentation
 
+Complete reference for all API endpoints in the Rate Limiter system.
+
 ## Base URL
+
 ```
 http://localhost:3000
 ```
 
-## Rate Limited Endpoints
+## Response Headers
 
-All endpoints under `/api` are rate limited with the following defaults:
-- **Limit**: 100 requests
-- **Window**: 60 seconds
-- **Algorithm**: Fixed Window
+All rate-limited endpoints include these headers:
 
----
-
-## Endpoints
-
-### 1. Get Data
-Retrieve sample data from the API.
-
-**Endpoint:** `GET /api/data`
-
-**Rate Limit:** Yes
-
-**Request:**
-```bash
-curl http://localhost:3000/api/data
-```
-
-**Response (Success - 200):**
-```json
-{
-  "message": "This endpoint is rate limited",
-  "data": {
-    "timestamp": "2024-01-01T12:00:00.000Z",
-    "random": 0.12345
-  }
-}
-```
-
-**Response Headers:**
-```
+```http
 X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 99
-X-RateLimit-Reset: 2024-01-01T12:01:00.000Z
-X-RateLimit-Algorithm: FixedWindow
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1640995200000
+X-RateLimit-Algorithm: TokenBucket
 ```
 
-**Response (Rate Limit Exceeded - 429):**
-```json
-{
-  "error": "Too Many Requests",
-  "message": "Rate limit exceeded. Please try again later.",
-  "limit": 100,
-  "remaining": 0,
-  "resetTime": "2024-01-01T12:01:00.000Z",
-  "resetIn": "30 seconds"
-}
+## Algorithm-Specific Endpoints
+
+### Fixed Window
+
+```http
+GET /api/fixed/data
+GET /api/fixed/search
+GET /api/fixed/users/:id
+POST /api/fixed/submit
 ```
 
----
+**Configuration:**
+- Window: 60 seconds
+- Max requests: 100
 
-### 2. Submit Data
-Submit data to the API.
+### Token Bucket
 
-**Endpoint:** `POST /api/submit`
-
-**Rate Limit:** Yes
-
-**Request:**
-```bash
-curl -X POST http://localhost:3000/api/submit \
-  -H "Content-Type: application/json" \
-  -d '{"name": "test", "value": 123}'
+```http
+GET /api/token/data
+GET /api/token/search
+GET /api/token/users/:id
+POST /api/token/submit
 ```
 
-**Response (Success - 200):**
-```json
-{
-  "message": "Data submitted successfully",
-  "received": {
-    "name": "test",
-    "value": 123
-  }
-}
+**Configuration:**
+- Capacity: 100 tokens
+- Refill rate: 10 tokens/second
+
+### ML Assisted
+
+```http
+GET /api/ml/data
+GET /api/ml/search
+GET /api/ml/users/:id
+GET /api/ml/status
+GET /api/ml/model
+POST /api/ml/retrain
 ```
 
----
-
-### 3. Health Check
-Check if the server is running.
-
-**Endpoint:** `GET /health`
-
-**Rate Limit:** No
-
-**Request:**
-```bash
-curl http://localhost:3000/health
+**ML-Specific Headers:**
+```http
+X-RateLimit-ML-Score: 0.15
+X-RateLimit-ML-Classification: NORMAL
+X-RateLimit-ML-Trained: true
 ```
 
-**Response (200):**
+**Classifications:**
+- `TRUSTED` (score < 0.25): 2x capacity
+- `NORMAL` (0.25-0.55): Standard capacity
+- `SUSPICIOUS` (0.55-0.75): 0.2x capacity
+- `THREAT` (0.75-1.0): 0.01x capacity
+
+## Utility Endpoints
+
+### Health Check
+
+```http
+GET /health
+```
+
+**Response:**
 ```json
 {
   "status": "healthy",
+  "uptime": 3600,
   "timestamp": "2024-01-01T12:00:00.000Z",
-  "uptime": 3600.5
+  "version": "1.0.0"
 }
 ```
 
----
+### Metrics
 
-### 4. Metrics
-View current rate limiting statistics.
-
-**Endpoint:** `GET /metrics`
-
-**Rate Limit:** No
-
-**Request:**
-```bash
-curl http://localhost:3000/metrics
+```http
+GET /metrics
 ```
 
-**Response (200):**
+**Response:** Prometheus-compatible metrics
+
+```
+# HELP http_requests_total Total number of HTTP requests
+# TYPE http_requests_total counter
+http_requests_total{method="GET",status="200"} 1234
+
+# HELP rate_limit_hits_total Rate limit hits
+# TYPE rate_limit_hits_total counter
+rate_limit_hits_total{algorithm="TokenBucket"} 42
+```
+
+### Algorithm Information
+
+```http
+GET /algorithms
+```
+
+**Response:**
 ```json
 {
-  "server": {
-    "uptime": {
-      "ms": 3600000,
-      "minutes": 60,
-      "formatted": "1h 0m"
+  "available": [
+    {
+      "name": "TokenBucket",
+      "endpoint": "/api/token/*",
+      "description": "Token-based with bursts",
+      "bestFor": "Production APIs"
+    }
+  ]
+}
+```
+
+```http
+GET /algorithm/info/:name
+```
+
+**Example:** `GET /algorithm/info/token`
+
+## Error Responses
+
+### Rate Limit Exceeded (429)
+
+```json
+{
+  "error": "Too Many Requests",
+  "message": "Rate limit exceeded",
+  "retryAfter": "30s",
+  "limit": 100,
+  "remaining": 0,
+  "resetAt": "2024-01-01T12:01:00.000Z"
+}
+```
+
+**Headers:**
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 30
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 0
+```
+
+### Not Found (404)
+
+```json
+{
+  "error": "Not Found",
+  "message": "Endpoint not found",
+  "path": "/api/invalid"
+}
+```
+
+### Server Error (500)
+
+```json
+{
+  "error": "Internal Server Error",
+  "message": "An unexpected error occurred",
+  "requestId": "req-123"
+}
+```
+
+## Rate Limit Calculation Examples
+
+### Token Bucket
+
+```
+Initial tokens: 100
+Request 1: tokens = 99 (allowed)
+Request 2: tokens = 98 (allowed)
+...
+After 10 seconds: tokens = 98 + (10 * 10) = 198 (capped at 100)
+```
+
+### ML Classification
+
+```
+Features extracted:
+  - requests_last_1min: 8
+  - avg_interval: 7500ms
+  - endpoint_diversity: 0.6
+  - success_rate: 0.98
+
+ML Score: 0.15
+Classification: TRUSTED
+Capacity: 100 * 2.0 = 200 req/min
+```
+
+## Testing with cURL
+
+```bash
+# Normal request
+curl -i http://localhost:3000/api/token/data
+
+# Check headers only
+curl -I http://localhost:3000/api/token/data
+
+# Extract rate limit info
+curl -s http://localhost:3000/api/token/data \
+  | jq '{limit, remaining, resetAt}'
+
+# Rapid requests (will trigger rate limit)
+for i in {1..150}; do
+  curl -s http://localhost:3000/api/token/data
+done
+```
+
+## Postman Collection
+
+Import this collection for easy testing:
+
+```json
+{
+  "info": {
+    "name": "API Rate Limiter",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/"
+  },
+  "item": [
+    {
+      "name": "Token Bucket - Get Data",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/token/data"
+      }
     },
-    "requests": {
-      "total": 1523,
-      "allowed": 1500,
-      "blocked": 23,
-      "blockRate": "1.51%",
-      "avgPerMinute": "25.38"
-    },
-    "topBlockedIPs": [
-      {"ip": "192.168.1.100", "blocks": 15},
-      {"ip": "192.168.1.101", "blocks": 8}
-    ],
-    "algorithmStats": {
-      "FixedWindow": {
-        "requests": 1523,
-        "allowed": 1500,
-        "blocked": 23
+    {
+      "name": "ML - Check Status",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/ml/status"
       }
     }
-  },
-  "rateLimiter": {
-    "algorithm": "FixedWindow",
-    "activeClients": 45,
-    "windowMs": 60000,
-    "maxRequests": 100,
-    "config": {
-      "windowSeconds": 60,
-      "requestsPerSecond": 1.67
-    }
-  }
-}
-```
-
----
-
-### 5. Algorithm Info
-Get information about the current rate limiting algorithm.
-
-**Endpoint:** `GET /algorithm/info`
-
-**Rate Limit:** No
-
-**Request:**
-```bash
-curl http://localhost:3000/algorithm/info
-```
-
-**Response (200):**
-```json
-{
-  "current": "FixedWindow",
-  "description": "Fixed Window Counter algorithm divides time into fixed windows and counts requests within each window.",
-  "config": {
-    "windowMs": 60000,
-    "windowSeconds": 60,
-    "maxRequests": 100,
-    "requestsPerSecond": 1.67
-  },
-  "complexity": {
-    "time": "O(1)",
-    "space": "O(n) where n = number of unique clients"
-  },
-  "advantages": [
-    "Simple to implement",
-    "Memory efficient",
-    "Fast constant-time operations",
-    "Easy to understand"
   ],
-  "disadvantages": [
-    "Boundary problem (can allow 2x requests at window edges)",
-    "Not perfectly fair",
-    "Sudden traffic spikes at window reset"
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000"
+    }
   ]
 }
 ```
 
 ---
 
-## Error Responses
-
-### 404 Not Found
-```json
-{
-  "error": "Not Found",
-  "message": "The requested resource was not found"
-}
-```
-
-### 429 Too Many Requests
-```json
-{
-  "error": "Too Many Requests",
-  "message": "Rate limit exceeded. Please try again later.",
-  "limit": 100,
-  "remaining": 0,
-  "resetTime": "2024-01-01T12:01:00.000Z",
-  "resetIn": "30 seconds"
-}
-```
-
-### 500 Internal Server Error
-```json
-{
-  "error": "Internal Server Error",
-  "message": "An error occurred"
-}
-```
+For more details, see the [main documentation](../README.md).
