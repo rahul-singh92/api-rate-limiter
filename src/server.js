@@ -27,6 +27,8 @@ const createReputationRateLimiter = require('./middleware/reputationRateLimiter'
 const createHybridRateLimiter = require('./middleware/hybridRateLimiter');
 const createCpuRateLimiter = require('./middleware/cpuRateLimiter');
 const { getClientId } = require('./utils/clientId');
+const { MLAssisted } = require('./algorithms');
+const createMLRateLimiter = require('./middleware/mlRateLimiter');
 
 // Initialize Express app
 const app = express();
@@ -117,6 +119,13 @@ const cpuAdaptiveLimiter = new CpuAdaptive({
   smoothingFactor: 0.3        // 30% current, 70% previous
 });
 
+const mlAssistedLimiter = new MLAssisted({
+  baseCapacity: 100,
+  baseRefillRate: 10,
+  minTrainingData: 100,
+  retrainInterval: 100
+});
+
 
 // ============================================
 // Apply Rate Limiting Middleware
@@ -131,6 +140,7 @@ app.use('/api/priority', createPriorityRateLimiter(priorityTokenBucketLimiter));
 app.use('/api/reputation', createReputationRateLimiter(reputationBasedLimiter));
 app.use('/api/hybrid', createHybridRateLimiter(hybridAdaptiveLimiter));
 app.use('/api/cpu', createCpuRateLimiter(cpuAdaptiveLimiter));
+app.use('/api/ml', createMLRateLimiter(mlAssistedLimiter));
 
 // Default rate limiting for generic /api routes
 app.use('/api', createRateLimiter(fixedWindowLimiter));
@@ -720,13 +730,13 @@ app.get('/api/hybrid/costs', (req, res) => {
 // CPU Based
 app.get('/api/cpu/data', (req, res) => {
   const rateLimit = req.rateLimit || {};
-  
+
   res.json({
     message: 'This endpoint uses CPU-based adaptive rate limiting',
     algorithm: 'CpuAdaptive',
     cpuStatus: rateLimit.cpuStatus,
     limits: rateLimit.limits,
-    data: { 
+    data: {
       timestamp: new Date().toISOString(),
       serverTime: Date.now()
     }
@@ -736,18 +746,18 @@ app.get('/api/cpu/data', (req, res) => {
 // CPU-intensive operation (simulates heavy load)
 app.post('/api/cpu/heavy', (req, res) => {
   const rateLimit = req.rateLimit || {};
-  
+
   // Simulate CPU-intensive work
   const start = Date.now();
   let result = 0;
-  
+
   // Burn some CPU cycles
   for (let i = 0; i < 10000000; i++) {
     result += Math.sqrt(i);
   }
-  
+
   const duration = Date.now() - start;
-  
+
   res.json({
     message: 'Heavy computation completed',
     algorithm: 'CpuAdaptive',
@@ -765,7 +775,7 @@ app.get('/api/cpu/status', (req, res) => {
   const clientId = getClientId(req);
   const state = cpuAdaptiveLimiter.getClientState(clientId);
   const stats = cpuAdaptiveLimiter.getStats();
-  
+
   res.json({
     clientId: clientId,
     clientState: state,
@@ -792,7 +802,7 @@ app.get('/api/cpu/status', (req, res) => {
 // Get CPU metrics
 app.get('/api/cpu/metrics', (req, res) => {
   const stats = cpuAdaptiveLimiter.getStats();
-  
+
   res.json({
     algorithm: stats.algorithm,
     cpuStatus: stats.cpuStatus,
@@ -808,13 +818,13 @@ app.get('/api/cpu/metrics', (req, res) => {
 app.post('/api/cpu/simulate-load', (req, res) => {
   const duration = parseInt(req.query.duration) || 5000; // Default 5 seconds
   const intensity = parseInt(req.query.intensity) || 50; // 1-100
-  
+
   res.json({
     message: `Simulating CPU load for ${duration}ms at ${intensity}% intensity`,
     warning: 'This will increase CPU usage temporarily',
     note: 'Watch /api/cpu/status to see rate limits adjust'
   });
-  
+
   // Simulate CPU load in background
   const startTime = Date.now();
   const interval = setInterval(() => {
@@ -822,7 +832,7 @@ app.post('/api/cpu/simulate-load', (req, res) => {
     for (let i = 0; i < intensity * 100000; i++) {
       Math.sqrt(i);
     }
-    
+
     if (Date.now() - startTime > duration) {
       clearInterval(interval);
       logger.info('CPU load simulation completed', { duration, intensity });
@@ -830,6 +840,225 @@ app.post('/api/cpu/simulate-load', (req, res) => {
   }, 10);
 });
 
+// ============================================
+// SECTION 4: ML-specific endpoints
+// ============================================
+
+/**
+ * Standard data endpoint
+ */
+app.get('/api/ml/data', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+
+  res.json({
+    message: 'This endpoint uses ML-assisted rate limiting',
+    algorithm: 'MLAssisted',
+    ml: rateLimit.ml,
+    limits: rateLimit.limits,
+    data: {
+      timestamp: new Date().toISOString(),
+      serverTime: Date.now()
+    }
+  });
+});
+
+/**
+ * Search endpoint (simulates diverse usage)
+ */
+app.get('/api/ml/search', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+  const query = req.query.q || '';
+
+  res.json({
+    message: 'Search endpoint',
+    algorithm: 'MLAssisted',
+    ml: rateLimit.ml,
+    query: query,
+    results: [
+      { id: 1, title: 'Result 1' },
+      { id: 2, title: 'Result 2' }
+    ]
+  });
+});
+
+/**
+ * User endpoint (for enumeration testing)
+ */
+app.get('/api/ml/users/:id', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+  const userId = req.params.id;
+
+  // Simulate different response codes
+  if (parseInt(userId) > 1000) {
+    return res.status(404).json({
+      error: 'User not found',
+      ml: rateLimit.ml
+    });
+  }
+
+  res.json({
+    message: 'User data',
+    algorithm: 'MLAssisted',
+    ml: rateLimit.ml,
+    user: {
+      id: userId,
+      name: `User ${userId}`
+    }
+  });
+});
+
+/**
+ * Heavy computation endpoint
+ */
+app.post('/api/ml/compute', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+
+  // Simulate heavy computation
+  const start = Date.now();
+  let result = 0;
+  for (let i = 0; i < 5000000; i++) {
+    result += Math.sqrt(i);
+  }
+
+  res.json({
+    message: 'Heavy computation',
+    algorithm: 'MLAssisted',
+    ml: rateLimit.ml,
+    computation: {
+      duration: Date.now() - start + 'ms',
+      result: result.toFixed(2)
+    }
+  });
+});
+
+/**
+ * Get ML status and classification
+ */
+app.get('/api/ml/status', (req, res) => {
+  const clientId = getClientId(req);
+  const state = mlAssistedLimiter.getClientState(clientId);
+  const stats = mlAssistedLimiter.getStats();
+
+  if (!state) {
+    return res.json({
+      message: 'No data yet for this client',
+      tip: 'Make some requests to build your profile',
+      clientId: clientId,
+      modelStatus: {
+        trained: stats.model.trained,
+        trainingDataSize: stats.model.trainingDataSize,
+        minRequired: stats.model.minTrainingData
+      }
+    });
+  }
+
+  res.json({
+    clientId: clientId,
+    clientState: state,
+    modelStatus: stats.model,
+    explanation: {
+      classification: state.classification,
+      meaning: {
+        TRUSTED: 'Normal behavior, high limits (2x boost)',
+        NORMAL: 'Standard behavior, normal limits (1x)',
+        SUSPICIOUS: 'Unusual pattern, reduced limits (0.3x)',
+        THREAT: 'Highly anomalous, severe restriction (0.05x)'
+      }[state.classification],
+      anomalyScore: state.anomalyScore,
+      scoreRange: '0.0 (normal) to 1.0 (anomalous)'
+    }
+  });
+});
+
+/**
+ * Get model statistics
+ */
+app.get('/api/ml/model', (req, res) => {
+  const stats = mlAssistedLimiter.getStats();
+
+  res.json({
+    algorithm: stats.algorithm,
+    model: stats.model,
+    classifications: stats.classifications,
+    totalRequests: stats.totalRequests,
+    thresholds: stats.thresholds,
+    multipliers: stats.multipliers,
+    info: {
+      howItWorks: 'Uses Isolation Forest to detect anomalous traffic patterns',
+      learning: 'Learns from normal traffic, no labeled data needed',
+      adaptation: 'Retrains every ' + stats.config.retrainInterval,
+      features: 12,
+      featureList: [
+        'requests_last_1min',
+        'requests_last_5min',
+        'avg_interval',
+        'request_regularity',
+        'unique_endpoints',
+        'endpoint_diversity',
+        'method_diversity',
+        'success_rate',
+        'error_rate',
+        'avg_response_time',
+        'avg_payload_size',
+        'user_agent_changes'
+      ]
+    }
+  });
+});
+
+/**
+ * Simulate bot behavior (for testing)
+ */
+app.get('/api/ml/simulate/bot', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+
+  res.json({
+    message: 'Bot simulation endpoint',
+    note: 'Rapid requests to this endpoint will be flagged as bot-like',
+    ml: rateLimit.ml,
+    tip: 'Try making 50+ requests per minute to this same endpoint'
+  });
+});
+
+/**
+ * Simulate scraper behavior (for testing)
+ */
+app.get('/api/ml/simulate/scraper/:page', (req, res) => {
+  const rateLimit = req.rateLimit || {};
+  const page = req.params.page;
+
+  res.json({
+    message: 'Scraper simulation endpoint',
+    note: 'Sequential page enumeration will be flagged',
+    ml: rateLimit.ml,
+    page: page,
+    tip: 'Try requesting /1, /2, /3, ... rapidly'
+  });
+});
+
+/**
+ * Force model retraining
+ */
+app.post('/api/ml/retrain', (req, res) => {
+  const stats = mlAssistedLimiter.getStats();
+
+  if (!stats.model.trained && stats.model.trainingDataSize < stats.model.minTrainingData) {
+    return res.status(400).json({
+      error: 'Not enough training data',
+      current: stats.model.trainingDataSize,
+      required: stats.model.minTrainingData,
+      tip: 'Make more requests to collect training data'
+    });
+  }
+
+  mlAssistedLimiter.trainModel();
+
+  res.json({
+    message: 'Model retraining initiated',
+    trainingRounds: mlAssistedLimiter.getStats().model.trainingRounds,
+    trainingDataSize: stats.model.trainingDataSize
+  });
+});
 
 
 /**
@@ -871,7 +1100,8 @@ app.get('/metrics', (req, res) => {
       priorityTokenBucket: priorityTokenBucketLimiter.getStats(),
       reputationBased: reputationBasedLimiter.getStats(),
       hybridAdaptive: hybridAdaptiveLimiter.getStats(),
-      cpuAdaptive: cpuAdaptiveLimiter.getStats()
+      cpuAdaptive: cpuAdaptiveLimiter.getStats(),
+      mlAssisted: mlAssistedLimiter.getStats()
     }
   });
 });
@@ -947,6 +1177,12 @@ app.get('/algorithms', (req, res) => {
         endpoint: '/api/cpu/*',
         description: 'CPU-based automatic adjustment',
         bestFor: 'Self-protecting systems'
+      },
+      {
+        name: 'MLAssisted',
+        endpoint: '/api/ml/*',
+        description: 'Machine Learning anomaly detection',
+        bestFor: 'Intelligent bot/attack detection'
       }
     ],
     recommendations: {
@@ -959,8 +1195,10 @@ app.get('/algorithms', (req, res) => {
       'SaaS/Multi-tenant': 'PriorityTokenBucket',
       'Learning': 'FixedWindow',
       'Production SaaS': 'HybridAdaptive',
-      'Self-Protecting Systems': 'CpuAdaptive',
-      'Auto Scaling': 'CPU Adaptive'
+      'Self-Protecting Systems': 'CpuAdaptive + MLAssisted',
+      'Auto Scaling': 'CPU Adaptive',
+      'Intelligent Bot Detection': 'MLAssisted',
+      'Unknown Attack Patterns': 'MLAssisted',
     }
   });
 });
@@ -1000,13 +1238,17 @@ app.get('/algorithm/info/:name', (req, res) => {
       name: 'Reputation Based',
       config: reputationBasedLimiter.getStats()
     },
-    hybrid: { 
-      name: 'Hybrid Adaptive', 
-      config: hybridAdaptiveLimiter.getStats() 
+    hybrid: {
+      name: 'Hybrid Adaptive',
+      config: hybridAdaptiveLimiter.getStats()
     },
-    cpu: { 
-      name: 'CPU Adaptive', 
-      config: cpuAdaptiveLimiter.getStats() 
+    cpu: {
+      name: 'CPU Adaptive',
+      config: cpuAdaptiveLimiter.getStats()
+    },
+    ml: {
+      name: 'ML Assisted',
+      config: mlAssistedLimiter.getStats()
     }
   };
 
@@ -1015,7 +1257,7 @@ app.get('/algorithm/info/:name', (req, res) => {
   if (!algo) {
     return res.status(404).json({
       error: 'Algorithm not found',
-      available: ['fixed', 'token', 'leaky', 'sliding', 'counter', 'priority', 'reputation','hybrid', 'cpu']
+      available: ['fixed', 'token', 'leaky', 'sliding', 'counter', 'priority', 'reputation', 'hybrid', 'cpu', 'ml']
     });
   }
 
@@ -1083,7 +1325,8 @@ const server = app.listen(PORT, () => {
       'PriorityTokenBucket',
       'ReputationBased',
       'HybridAdaptive',
-      'CpuAdaptive'
+      'CpuAdaptive',
+      'MLAssisted'
     ]
   });
 
@@ -1098,12 +1341,15 @@ const server = app.listen(PORT, () => {
   console.log(`   • Reputation Based:       http://localhost:${PORT}/api/reputation/data`);
   console.log(`   • Hybrid Adaptive:        http://localhost:${PORT}/api/hybrid/data`);
   console.log(`   • CPU Adaptive:           http://localhost:${PORT}/api/cpu/data`);
+  console.log(`   • ML Assisted:            http://localhost:${PORT}/api/ml/data`);
   console.log(`\n📈 Utilities:`);
   console.log(`   • Metrics:                http://localhost:${PORT}/metrics`);
   console.log(`   • Algorithms Info:        http://localhost:${PORT}/algorithms`);
   console.log(`   • Priority Tiers:         http://localhost:${PORT}/api/priority/tiers`);
   console.log(`   • Health Check:           http://localhost:${PORT}/health`);
-  console.log(`\n✨ NEW: Priority Token Bucket - SaaS/Multi-tenant rate limiting!\n`);
+  console.log(`   • ML Status:              http://localhost:${PORT}/api/ml/status`);
+  console.log(`   • ML Model Info:          http://localhost:${PORT}/api/ml/model`);
+  console.log(`   • Health Check:           http://localhost:${PORT}/health`);
 });
 
 // ============================================
@@ -1123,6 +1369,7 @@ process.on('SIGTERM', () => {
     reputationBasedLimiter.stop();
     hybridAdaptiveLimiter.stop();
     cpuAdaptiveLimiter.stop();
+    mlAssistedLimiter.stop();
     process.exit(0);
   });
 });
@@ -1140,6 +1387,7 @@ process.on('SIGINT', () => {
     reputationBasedLimiter.stop();
     hybridAdaptiveLimiter.stop();
     cpuAdaptiveLimiter.stop();
+    mlAssistedLimiter.stop();
     process.exit(0);
   });
 });

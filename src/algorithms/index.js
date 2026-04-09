@@ -14,6 +14,7 @@ const PriorityTokenBucketRateLimiter = require('./PriorityTokenBucket');
 const ReputationBasedRateLimiter = require('./ReputationBasedRateLimiter');
 const HybridAdaptiveRateLimiter = require('./HybridAdaptiveRateLimiter');
 const CpuAdaptiveRateLimiter = require('./CpuAdaptiveRateLimiter');
+const MLAssistedRateLimiter = require('./MLAssistedRateLimiter');
 
 module.exports = {
   FixedWindow: FixedWindowRateLimiter,
@@ -25,5 +26,6 @@ module.exports = {
   ReputationBased: ReputationBasedRateLimiter,
   HybridAdaptive: HybridAdaptiveRateLimiter,
   CpuAdaptive: CpuAdaptiveRateLimiter,
+  MLAssisted: MLAssistedRateLimiter,
   // Future algorithms will be added here:
 };
