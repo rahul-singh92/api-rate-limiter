@@ -258,4 +258,4 @@ Import this collection for easy testing:
 
 ---
 
-For more details, see the [main documentation](../README.md).
+For more details, see the [main documentation](../../README.md).
