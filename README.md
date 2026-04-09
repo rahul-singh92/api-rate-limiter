@@ -66,7 +66,6 @@ curl -I http://localhost:3000/api/ml/data | grep "X-RateLimit"
 - [API Reference](docs/api/endpoints.md)
 - [Research Paper](docs/research/paper.md)
 - [Installation Guide](docs/guides/installation.md)
-- [Configuration](docs/guides/configuration.md)
 
 ## Usage Example
 
