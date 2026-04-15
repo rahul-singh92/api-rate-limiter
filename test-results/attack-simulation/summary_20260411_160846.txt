@@ -1,0 +1,20 @@
+Attack Simulation Summary
+=========================
+Date: Sat Apr 11 16:13:14 IST 2026
+
+Attack Results:
+---------------
+Attack Type         | Requests | Blocked | Block% | ML Classification | Anomaly Score
+--------------------|----------|---------|--------|-------------------|---------------
+DDoS                | 1000     | (429): | 60.20% |  | 
+Bot/Scraper         | 200      | (429): | 52.00% | null | null
+API Enumeration     | 150      | (429): | 26.00% | SUSPICIOUS | 0.6546
+Normal User         | 30       | (429): | 0% | SUSPICIOUS | 0.66
+
+Expected Behavior:
+- DDoS: Should be classified as THREAT (score > 0.75)
+- Bot: Should be classified as SUSPICIOUS/THREAT (score > 0.55)
+- Enumeration: Should be classified as SUSPICIOUS (score > 0.55)
+- Normal: Should be classified as NORMAL/TRUSTED (score < 0.55)
+
+All logs saved in: ./test-results/attack-simulation

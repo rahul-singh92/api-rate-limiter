@@ -122,7 +122,7 @@ const cpuAdaptiveLimiter = new CpuAdaptive({
 const mlAssistedLimiter = new MLAssisted({
   baseCapacity: 100,
   baseRefillRate: 10,
-  minTrainingData: 100,
+  minTrainingData: 50,
   retrainInterval: 100
 });
 

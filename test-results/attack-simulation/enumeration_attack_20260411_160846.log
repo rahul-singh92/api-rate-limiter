@@ -1,0 +1,10 @@
+Starting Enumeration attack...
+
+Enumeration Attack Results:
+  Duration: 34s
+  Total Requests: 150
+  Successful: 110
+  Blocked (429): 39
+  Block Rate: 26.00%
+  ML Classification: SUSPICIOUS
+  Anomaly Score: 0.6546

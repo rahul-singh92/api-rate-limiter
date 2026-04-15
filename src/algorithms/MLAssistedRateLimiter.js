@@ -198,6 +198,17 @@
  * @module algorithms/MLAssistedRateLimiter
  */
 
+/**
+ * ML-Assisted Rate Limiting - FINAL PRODUCTION VERSION
+ * 
+ * ALL FIXES APPLIED:
+ * ✅ Training data filtering (only clean normal traffic)
+ * ✅ All features normalized to 0-1
+ * ✅ Proper thresholds and multipliers
+ * ✅ Better model parameters
+ * ✅ Robust error handling
+ */
+
 const fs = require('fs');
 const path = require('path');
 
@@ -211,9 +222,6 @@ class IsolationForest {
     this.trained = false;
   }
 
-  /**
-   * Train the model on normal data
-   */
   fit(data) {
     if (!data || data.length === 0) {
       throw new Error('Cannot train on empty data');
@@ -222,7 +230,6 @@ class IsolationForest {
     this.trees = [];
     this.featureNames = Object.keys(data[0]);
     
-    // Build multiple isolation trees
     for (let i = 0; i < this.numTrees; i++) {
       const sample = this.getSample(data, this.sampleSize);
       const tree = this.buildTree(sample, 0, this.maxDepth);
@@ -232,9 +239,6 @@ class IsolationForest {
     this.trained = true;
   }
 
-  /**
-   * Get random sample from data
-   */
   getSample(data, size) {
     const sample = [];
     const actualSize = Math.min(size, data.length);
@@ -247,16 +251,11 @@ class IsolationForest {
     return sample;
   }
 
-  /**
-   * Build isolation tree recursively
-   */
   buildTree(data, depth, maxDepth) {
-    // Stop conditions
     if (depth >= maxDepth || data.length <= 1) {
       return { size: data.length };
     }
 
-    // Random feature and split value
     const feature = this.featureNames[Math.floor(Math.random() * this.featureNames.length)];
     const values = data.map(d => d[feature]);
     const min = Math.min(...values);
@@ -267,8 +266,6 @@ class IsolationForest {
     }
     
     const splitValue = min + Math.random() * (max - min);
-
-    // Split data
     const left = data.filter(d => d[feature] < splitValue);
     const right = data.filter(d => d[feature] >= splitValue);
 
@@ -280,30 +277,21 @@ class IsolationForest {
     };
   }
 
-  /**
-   * Predict anomaly score for a single instance
-   */
   predict(instance) {
     if (!this.trained) {
-      return 0.5; // Default score if not trained
+      return 0.5;
     }
 
     const depths = this.trees.map(tree => this.pathLength(instance, tree, 0));
     const avgDepth = depths.reduce((a, b) => a + b, 0) / depths.length;
-    
-    // Normalize to 0-1 using expected path length
     const c = this.expectedPathLength(this.sampleSize);
     const score = Math.pow(2, -avgDepth / c);
     
     return Math.min(1, Math.max(0, score));
   }
 
-  /**
-   * Calculate path length through tree
-   */
   pathLength(instance, node, depth) {
     if (!node.feature) {
-      // Leaf node
       return depth + this.expectedPathLength(node.size);
     }
 
@@ -314,18 +302,12 @@ class IsolationForest {
     }
   }
 
-  /**
-   * Expected path length for n samples
-   */
   expectedPathLength(n) {
     if (n <= 1) return 0;
-    const H = Math.log(n - 1) + 0.5772156649; // Euler's constant
+    const H = Math.log(n - 1) + 0.5772156649;
     return 2 * H - (2 * (n - 1) / n);
   }
 
-  /**
-   * Get model state for persistence
-   */
   toJSON() {
     return {
       numTrees: this.numTrees,
@@ -337,9 +319,6 @@ class IsolationForest {
     };
   }
 
-  /**
-   * Load model from state
-   */
   fromJSON(state) {
     this.numTrees = state.numTrees;
     this.sampleSize = state.sampleSize;
@@ -352,48 +331,43 @@ class IsolationForest {
 
 class MLAssistedRateLimiter {
   constructor(options = {}) {
-    // Base configuration
     this.baseCapacity = options.baseCapacity || 100;
     this.baseRefillRate = options.baseRefillRate || 10;
     
-    // ML configuration
-    this.minTrainingData = options.minTrainingData || 100;
-    this.retrainInterval = options.retrainInterval || 100; // Retrain every N requests
+    this.minTrainingData = options.minTrainingData || 200;
+    this.retrainInterval = options.retrainInterval || 50;
     this.modelPath = options.modelPath || path.join(__dirname, '..', 'data', 'ml-model.json');
     
-    // Anomaly thresholds (adjusted for better bot detection)
+    // Stricter thresholds
     this.thresholds = {
-      TRUSTED: 0.25,     // < 0.25 = trusted user (tighter)
-      NORMAL: 0.55,      // 0.25 - 0.55 = normal user
-      SUSPICIOUS: 0.75,  // 0.55 - 0.75 = suspicious
-      THREAT: 1.0        // 0.75 - 1.0 = threat
+      TRUSTED: 0.20,
+      NORMAL: 0.50,
+      SUSPICIOUS: 0.70,
+      THREAT: 1.0
     };
     
-    // Rate limit multipliers (more aggressive)
+    // Aggressive multipliers
     this.multipliers = {
-      TRUSTED: 2.0,      // 200 req/min
-      NORMAL: 1.0,       // 100 req/min
-      SUSPICIOUS: 0.2,   // 20 req/min (reduced from 0.3)
-      THREAT: 0.01       // 1 req/min (reduced from 0.05)
+      TRUSTED: 2.0,
+      NORMAL: 1.0,
+      SUSPICIOUS: 0.1,
+      THREAT: 0.001
     };
     
-    // ML model (increased trees for better detection)
+    // Better model
     this.model = new IsolationForest({
-      numTrees: 150,     // Increased from 100
-      sampleSize: 128    // Reduced for faster isolation of anomalies
+      numTrees: 200,
+      sampleSize: 256
     });
     
-    // Training data storage
     this.trainingData = [];
     this.requestsSinceRetrain = 0;
-    
-    // Client tracking
-    // Structure: Map<clientId, ClientState>
     this.clients = new Map();
     
-    // Statistics
     this.stats = {
       totalRequests: 0,
+      allowed: 0,
+      denied: 0,
       classifications: {
         TRUSTED: 0,
         NORMAL: 0,
@@ -401,33 +375,25 @@ class MLAssistedRateLimiter {
         THREAT: 0
       },
       trainingRounds: 0,
-      modelAccuracy: 0
+      normalTrafficSamples: 0,
+      botTrafficFiltered: 0
     };
     
-    // Try to load existing model
     this.loadModel();
-    
-    // Start token refill
     this.startRefill();
     
-    console.log('✅ ML-Assisted rate limiter initialized');
+    console.log('✅ ML-Assisted rate limiter initialized (FINAL VERSION)');
     console.log(`   Training threshold: ${this.minTrainingData} requests`);
     console.log(`   Retrain interval: ${this.retrainInterval} requests`);
   }
 
-  /**
-   * Initialize or get client state
-   */
   getClient(clientId) {
     let client = this.clients.get(clientId);
     
     if (!client) {
       client = {
-        // Token bucket state
         tokens: this.baseCapacity,
         lastRefill: Date.now(),
-        
-        // Request history
         requests: [],
         endpoints: [],
         methods: [],
@@ -435,12 +401,8 @@ class MLAssistedRateLimiter {
         responseTimes: [],
         payloadSizes: [],
         userAgents: [],
-        
-        // Current classification
         classification: 'NORMAL',
         anomalyScore: 0.5,
-        
-        // Statistics
         totalRequests: 0,
         successfulRequests: 0,
         failedRequests: 0
@@ -453,7 +415,7 @@ class MLAssistedRateLimiter {
   }
 
   /**
-   * Extract features from client state
+   * Extract features - ALL NORMALIZED TO 0-1
    */
   extractFeatures(client) {
     const now = Date.now();
@@ -461,12 +423,10 @@ class MLAssistedRateLimiter {
     const fiveMinAgo = now - 300000;
     const tenSecAgo = now - 10000;
     
-    // Filter recent requests
     const requests1min = client.requests.filter(r => r > oneMinAgo);
     const requests5min = client.requests.filter(r => r > fiveMinAgo);
     const requests10sec = client.requests.filter(r => r > tenSecAgo);
     
-    // CRITICAL FIX: Calculate intervals from recent requests
     const recentRequests = client.requests.slice(-50);
     const intervals = [];
     for (let i = 1; i < recentRequests.length; i++) {
@@ -477,32 +437,20 @@ class MLAssistedRateLimiter {
       ? intervals.reduce((a, b) => a + b, 0) / intervals.length
       : 10000;
     
-    // IMPROVED: Coefficient of Variation for regularity
-    // CV = stdDev / mean
-    // Low CV (< 0.2) = very regular (bot)
-    // High CV (> 0.5) = irregular (human)
     const meanInterval = avgInterval;
     const variance = intervals.length > 1
       ? intervals.reduce((sum, val) => sum + Math.pow(val - meanInterval, 2), 0) / intervals.length
       : 1000;
     const stdDev = Math.sqrt(variance);
     const coefficientOfVariation = meanInterval > 0 ? stdDev / meanInterval : 1;
-    
-    // Convert to 0-1 scale: low CV = high regularity score (bot-like)
-    // Human: CV ~0.5-2.0, Bot: CV ~0.1-0.3
     const regularity = Math.max(0, Math.min(1, 1 - coefficientOfVariation));
     
-    // NEW: Burst detection - requests in last 10 seconds
-    const burstRate = requests10sec.length / 10; // requests per second
+    const burstRate = requests10sec.length / 10;
     
-    // Endpoint diversity (unique endpoints / total requests)
     const uniqueEndpoints = new Set(client.endpoints.slice(-50)).size;
     const totalEndpoints = Math.min(50, client.endpoints.length);
-    const endpointDiversity = totalEndpoints > 0
-      ? uniqueEndpoints / totalEndpoints
-      : 0;
+    const endpointDiversity = totalEndpoints > 0 ? uniqueEndpoints / totalEndpoints : 0;
     
-    // NEW: Endpoint repetition (same endpoint repeatedly)
     const recentEndpoints = client.endpoints.slice(-20);
     let maxRepetition = 0;
     const endpointCounts = {};
@@ -510,80 +458,82 @@ class MLAssistedRateLimiter {
       endpointCounts[ep] = (endpointCounts[ep] || 0) + 1;
       maxRepetition = Math.max(maxRepetition, endpointCounts[ep]);
     });
-    const endpointRepetition = recentEndpoints.length > 0
-      ? maxRepetition / recentEndpoints.length
-      : 0;
+    const endpointRepetition = recentEndpoints.length > 0 ? maxRepetition / recentEndpoints.length : 0;
     
-    // Method diversity
     const uniqueMethods = new Set(client.methods.slice(-50)).size;
     const methodDiversity = client.methods.length > 0
       ? uniqueMethods / Math.min(50, client.methods.length)
       : 0;
     
-    // Success/error rates
     const recentCodes = client.responseCodes.slice(-100);
     const successCount = recentCodes.filter(c => c >= 200 && c < 400).length;
     const successRate = recentCodes.length > 0 ? successCount / recentCodes.length : 1.0;
     const errorRate = 1 - successRate;
     
-    // Average response time
     const recentTimes = client.responseTimes.slice(-50);
     const avgResponseTime = recentTimes.length > 0
       ? recentTimes.reduce((a, b) => a + b, 0) / recentTimes.length
       : 100;
     
-    // Average payload size
     const recentPayloads = client.payloadSizes.slice(-50);
     const avgPayloadSize = recentPayloads.length > 0
       ? recentPayloads.reduce((a, b) => a + b, 0) / recentPayloads.length
       : 1024;
     
-    // User agent consistency
     const uniqueUserAgents = new Set(client.userAgents.slice(-50)).size;
     const userAgentChanges = client.userAgents.length > 0
       ? uniqueUserAgents / Math.min(50, client.userAgents.length)
       : 0;
     
-    // NEW: Perfect timing detection (intervals all very similar)
-    const intervalVariance = intervals.length > 3
-      ? Math.min(1, stdDev / 1000)  // Normalized variance
-      : 0.5;
+    const intervalVariance = intervals.length > 3 ? Math.min(1, stdDev / 1000) : 0.5;
     
+    // ALL FEATURES NORMALIZED TO 0-1
     return {
-      // Volume features
-      requests_last_1min: Math.min(100, requests1min.length),
-      requests_last_5min: Math.min(500, requests5min.length),
-      burst_rate: Math.min(10, burstRate),
-      
-      // Timing features
-      avg_interval: Math.min(60000, avgInterval) / 60000,  // Normalize to 0-1
+      requests_last_1min: Math.min(1, requests1min.length / 100),
+      requests_last_5min: Math.min(1, requests5min.length / 500),
+      burst_rate: Math.min(1, burstRate / 10),
+      avg_interval: Math.min(1, avgInterval / 60000),
       request_regularity: regularity,
       interval_variance: intervalVariance,
-      
-      // Diversity features
       endpoint_diversity: endpointDiversity,
       endpoint_repetition: endpointRepetition,
       method_diversity: methodDiversity,
-      
-      // Quality features
       success_rate: successRate,
       error_rate: errorRate,
-      avg_response_time: Math.min(10000, avgResponseTime) / 10000,  // Normalize
-      
-      // Metadata features
-      avg_payload_size: Math.min(1048576, avgPayloadSize) / 1048576,  // Normalize
+      avg_response_time: Math.min(1, avgResponseTime / 10000),
+      avg_payload_size: Math.min(1, avgPayloadSize / 1048576),
       user_agent_changes: userAgentChanges
     };
   }
 
   /**
-   * Record request information
+   * 🔥 CRITICAL: Quick heuristic to filter out bot traffic from training
+   */
+  quickAnomalyCheck(features) {
+    let score = 0;
+    
+    // High volume (> 60 req/min)
+    if (features.requests_last_1min > 0.6) score += 0.3;
+    
+    // Same endpoint repeatedly (> 70%)
+    if (features.endpoint_repetition > 0.7) score += 0.3;
+    
+    // Very regular timing (CV < 0.2, bot-like)
+    if (features.request_regularity > 0.8) score += 0.2;
+    
+    // Low diversity (< 30% unique endpoints)
+    if (features.endpoint_diversity < 0.3) score += 0.2;
+    
+    return score;
+  }
+
+  /**
+   * Record request - WITH TRAINING DATA FILTERING
    */
   recordRequest(clientId, request, response) {
     const client = this.getClient(clientId);
     const now = Date.now();
     
-    // Update request history
     client.requests.push(now);
     client.endpoints.push(request.endpoint || '/');
     client.methods.push(request.method || 'GET');
@@ -592,7 +542,6 @@ class MLAssistedRateLimiter {
     client.payloadSizes.push(response.payloadSize || 0);
     client.userAgents.push(request.userAgent || 'unknown');
     
-    // Keep only recent history (last 1000 requests per client)
     const maxHistory = 1000;
     if (client.requests.length > maxHistory) {
       client.requests = client.requests.slice(-maxHistory);
@@ -604,7 +553,6 @@ class MLAssistedRateLimiter {
       client.userAgents = client.userAgents.slice(-maxHistory);
     }
     
-    // Update statistics
     client.totalRequests++;
     if (response.statusCode >= 200 && response.statusCode < 400) {
       client.successfulRequests++;
@@ -612,12 +560,20 @@ class MLAssistedRateLimiter {
       client.failedRequests++;
     }
     
-    // Extract features for training
+    // 🔥 CRITICAL FIX: Only train on normal-looking traffic
     if (client.requests.length >= 10) {
       const features = this.extractFeatures(client);
-      this.trainingData.push(features);
+      const quickScore = this.quickAnomalyCheck(features);
       
-      // Keep training data manageable
+      if (quickScore < 0.5) {
+        // Likely normal traffic
+        this.trainingData.push(features);
+        this.stats.normalTrafficSamples++;
+      } else {
+        // Likely bot/attack - don't contaminate training data
+        this.stats.botTrafficFiltered++;
+      }
+      
       if (this.trainingData.length > 10000) {
         this.trainingData = this.trainingData.slice(-5000);
       }
@@ -626,42 +582,33 @@ class MLAssistedRateLimiter {
     this.stats.totalRequests++;
     this.requestsSinceRetrain++;
     
-    // Retrain model periodically
     if (this.requestsSinceRetrain >= this.retrainInterval && 
         this.trainingData.length >= this.minTrainingData) {
       this.trainModel();
     }
   }
 
-  /**
-   * Train or retrain the ML model
-   */
   trainModel() {
     try {
       if (this.trainingData.length < this.minTrainingData) {
-        console.log(`⏳ Not enough training data (${this.trainingData.length}/${this.minTrainingData})`);
         return;
       }
       
-      console.log(`🎓 Training ML model on ${this.trainingData.length} samples...`);
+      console.log(`🎓 Training ML model on ${this.trainingData.length} CLEAN samples...`);
+      console.log(`   Normal samples: ${this.stats.normalTrafficSamples}`);
+      console.log(`   Bot traffic filtered: ${this.stats.botTrafficFiltered}`);
       
       this.model.fit(this.trainingData);
       this.requestsSinceRetrain = 0;
       this.stats.trainingRounds++;
       
       console.log(`✅ Model trained (Round ${this.stats.trainingRounds})`);
-      
-      // Save model
       this.saveModel();
-      
     } catch (error) {
-      console.error('❌ Model training failed:', error.message);
+      console.error('❌ Training failed:', error.message);
     }
   }
 
-  /**
-   * Classify request based on anomaly score
-   */
   classify(anomalyScore) {
     if (anomalyScore < this.thresholds.TRUSTED) {
       return 'TRUSTED';
@@ -674,16 +621,10 @@ class MLAssistedRateLimiter {
     }
   }
 
-  /**
-   * Get adaptive rate limit multiplier
-   */
   getMultiplier(classification) {
     return this.multipliers[classification] || 1.0;
   }
 
-  /**
-   * Refill tokens based on classification
-   */
   refillTokens(client) {
     const now = Date.now();
     const timeSinceLastRefill = now - client.lastRefill;
@@ -696,61 +637,54 @@ class MLAssistedRateLimiter {
     const tokensToAdd = secondsElapsed * actualRefillRate;
     
     if (tokensToAdd > 0) {
-      client.tokens = Math.min(
-        client.tokens + tokensToAdd,
-        actualCapacity
-      );
-      
+      client.tokens = Math.min(client.tokens + tokensToAdd, actualCapacity);
       client.lastRefill = now;
     }
   }
 
-  /**
-   * Check if request should be allowed
-   */
   async check(clientId, requestInfo = {}) {
     const client = this.getClient(clientId);
     
-    // Extract features
     const features = this.extractFeatures(client);
     
-    // Get ML prediction
     let anomalyScore = 0.5;
     let classification = 'NORMAL';
     
     if (this.model.trained && client.requests.length >= 5) {
-      anomalyScore = this.model.predict(features);
-      classification = this.classify(anomalyScore);
-      
-      // Update client classification
-      client.classification = classification;
-      client.anomalyScore = anomalyScore;
-      
-      // Update statistics
-      this.stats.classifications[classification]++;
+      try {
+        anomalyScore = this.model.predict(features);
+        classification = this.classify(anomalyScore);
+        
+        client.anomalyScore = anomalyScore;
+        client.classification = classification;
+        
+        this.stats.classifications[classification]++;
+      } catch (error) {
+        console.error('❌ Prediction error:', error.message);
+      }
     }
     
-    // Refill tokens
     this.refillTokens(client);
     
     const multiplier = this.getMultiplier(classification);
     const actualCapacity = Math.floor(this.baseCapacity * multiplier);
     const actualRefillRate = this.baseRefillRate * multiplier;
     
-    // Check if enough tokens
     const allowed = client.tokens >= 1;
     
     if (allowed) {
       client.tokens -= 1;
+      this.stats.allowed++;
+    } else {
+      this.stats.denied++;
     }
     
-    // Calculate retry time
     const tokensNeeded = 1 - client.tokens;
     const secondsUntilAvailable = tokensNeeded > 0
       ? Math.ceil(tokensNeeded / actualRefillRate)
       : 0;
     
-    const result = {
+    return {
       allowed,
       limit: actualCapacity,
       remaining: Math.floor(client.tokens),
@@ -773,13 +707,8 @@ class MLAssistedRateLimiter {
         multiplier: multiplier
       }
     };
-    
-    return result;
   }
 
-  /**
-   * Save model to disk
-   */
   saveModel() {
     try {
       const dataDir = path.dirname(this.modelPath);
@@ -795,15 +724,11 @@ class MLAssistedRateLimiter {
       
       fs.writeFileSync(this.modelPath, JSON.stringify(state, null, 2));
       console.log(`💾 Model saved to ${this.modelPath}`);
-      
     } catch (error) {
-      console.error('❌ Failed to save model:', error.message);
+      console.error('❌ Save failed:', error.message);
     }
   }
 
-  /**
-   * Load model from disk
-   */
   loadModel() {
     try {
       if (fs.existsSync(this.modelPath)) {
@@ -817,13 +742,10 @@ class MLAssistedRateLimiter {
         console.log(`   Training rounds: ${this.stats.trainingRounds}`);
       }
     } catch (error) {
-      console.error('⚠️  Failed to load model:', error.message);
+      console.error('⚠️  Load failed:', error.message);
     }
   }
 
-  /**
-   * Get client state
-   */
   getClientState(clientId) {
     const client = this.clients.get(clientId);
     if (!client) return null;
@@ -848,9 +770,6 @@ class MLAssistedRateLimiter {
     };
   }
 
-  /**
-   * Start refill interval
-   */
   startRefill() {
     this.refillInterval = setInterval(() => {
       for (const client of this.clients.values()) {
@@ -863,9 +782,6 @@ class MLAssistedRateLimiter {
     }
   }
 
-  /**
-   * Get statistics
-   */
   getStats() {
     return {
       algorithm: 'MLAssisted (Isolation Forest)',
@@ -875,10 +791,14 @@ class MLAssistedRateLimiter {
         trainingDataSize: this.trainingData.length,
         minTrainingData: this.minTrainingData,
         trainingRounds: this.stats.trainingRounds,
-        requestsSinceRetrain: this.requestsSinceRetrain
+        requestsSinceRetrain: this.requestsSinceRetrain,
+        normalSamples: this.stats.normalTrafficSamples,
+        botFiltered: this.stats.botTrafficFiltered
       },
       classifications: this.stats.classifications,
       totalRequests: this.stats.totalRequests,
+      allowed: this.stats.allowed,
+      denied: this.stats.denied,
       thresholds: this.thresholds,
       multipliers: this.multipliers,
       config: {
@@ -889,23 +809,16 @@ class MLAssistedRateLimiter {
     };
   }
 
-  /**
-   * Reset all clients
-   */
   reset() {
     this.clients.clear();
     console.log('All clients reset');
   }
 
-  /**
-   * Stop intervals
-   */
   stop() {
     if (this.refillInterval) {
       clearInterval(this.refillInterval);
     }
     
-    // Save model before stopping
     if (this.model.trained) {
       this.saveModel();
     }

@@ -1,0 +1,38 @@
+ML Model Accuracy Report
+========================
+Date: Sun Apr 12 14:55:05 IST 2026
+Total Samples: 1000
+
+Confusion Matrix:
+                 Predicted
+               Normal  Attack
+Actual Normal   238      262
+       Attack   391      109
+
+Metrics:
+--------
+Overall Accuracy:    34.7000%
+Precision:           29.3800%
+Recall:              21.8000%
+F1-Score:            25.0286%
+False Positive Rate: 52.4000%
+False Negative Rate: 78.2000%
+
+Breakdown:
+----------
+True Negatives (Normal correctly classified):  238 / 500
+False Positives (Normal wrongly flagged):      262 / 500
+True Positives (Attack correctly detected):    109 / 500
+False Negatives (Attack missed):               391 / 500
+
+Interpretation:
+---------------
+- Accuracy > 90%:  Excellent
+- Accuracy 80-90%: Good
+- Accuracy < 80%:  Needs improvement
+
+- FPR < 10%:       Acceptable for production
+- FPR > 20%:       Too many false alarms
+
+- FNR < 10%:       Good attack detection
+- FNR > 20%:       Missing too many attacks

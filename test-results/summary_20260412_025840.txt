@@ -1,0 +1,24 @@
+API Rate Limiter - Load Test Summary
+=====================================
+Date: Sun Apr 12 03:06:59 IST 2026
+Total Requests: 1000000
+Concurrent Users: 100
+
+System Information:
+-------------------
+OS: Darwin 25.3.0
+Architecture: arm64
+CPU: Apple M4
+RAM: 16 GB
+
+Results by Algorithm:
+---------------------
+
+Algorithm       Req/sec      Mean(ms)     P95(ms)      Failed          Rate Limited   
+--------------------------------------------------------------------------------
+token           13936.69     7.175        10.762       999800          0              
+fixed           13634.97     7.334        11.001       999900          0              
+leaky           11557.35     8.653        12.979       999250          0              
+sliding         10055.95     9.944        14.916       999800          0              
+counter         9543.03      10.479       15.718       847408          0              
+ml                                                                                    

@@ -728,10 +728,10 @@ setInterval(() => {
 ### 8.1 Test Environment
 
 **Hardware:**
-- CPU: Intel Xeon 16-core @ 2.8GHz
-- RAM: 32GB DDR4
-- Network: 10 Gbps
-- OS: Ubuntu 22.04 LTS
+- CPU: Apple M4 10-core CPU
+- RAM: 16GB
+- Architecture: ARM64
+- OS: macOS (Darwin kernel)
 
 **Software:**
 - Node.js v18.17.0

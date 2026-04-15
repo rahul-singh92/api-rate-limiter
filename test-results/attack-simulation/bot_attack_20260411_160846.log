@@ -1,0 +1,10 @@
+Starting Bot attack...
+
+Bot Attack Results:
+  Duration: 25s
+  Total Requests: 200
+  Successful: 96
+  Blocked (429): 104
+  Block Rate: 52.00%
+  ML Classification: null
+  Anomaly Score: null
