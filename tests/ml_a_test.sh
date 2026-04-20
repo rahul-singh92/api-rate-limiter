@@ -17,6 +17,60 @@ RESULTS_FILE="${RESULTS_DIR}/accuracy_${TIMESTAMP}.csv"
 
 mkdir -p "$RESULTS_DIR"
 
+for cmd in curl jq bc; do
+    if ! command -v "$cmd" > /dev/null 2>&1; then
+        echo "Missing dependency: $cmd"
+        exit 1
+    fi
+done
+
+if ! curl -fsS "${BASE_URL}/health" > /dev/null 2>&1; then
+    echo "Server is not reachable at ${BASE_URL}. Start it before running this test."
+    exit 1
+fi
+
+ml_curl() {
+    local client_id="$1"
+    local url="$2"
+    curl -s -H "X-Client-Id: $client_id" "$url"
+}
+
+read_ml_status() {
+    local client_id="$1"
+    local response body http_status classification anomaly_score
+
+    response=$(curl -s -w '\n%{http_code}' -H "X-Client-Id: $client_id" "${BASE_URL}/api/ml/status")
+    http_status=$(printf '%s\n' "$response" | tail -n 1)
+    body=$(printf '%s\n' "$response" | sed '$d')
+
+    classification=$(printf '%s' "$body" | jq -r '.clientState.classification // .ml.classification // "UNKNOWN"')
+    anomaly_score=$(printf '%s' "$body" | jq -r '.clientState.anomalyScore // .ml.anomalyScore // 0.5')
+
+    printf '%s|%s|%s\n' "$http_status" "$classification" "$anomaly_score"
+}
+
+safe_percent() {
+    local numerator="$1"
+    local denominator="$2"
+
+    if [ "$denominator" -eq 0 ]; then
+        echo "0"
+    else
+        echo "scale=4; $numerator * 100 / $denominator" | bc -l
+    fi
+}
+
+safe_f1() {
+    local precision="$1"
+    local recall="$2"
+
+    if [ "$(echo "$precision + $recall == 0" | bc -l)" -eq 1 ]; then
+        echo "0"
+    else
+        echo "scale=4; 2 * $precision * $recall / ($precision + $recall)" | bc -l
+    fi
+}
+
 echo "Test Configuration:"
 echo "  Phase 1: Train on 75 normal users"
 echo "  Phase 2: Test 75 normal users"
@@ -49,15 +103,14 @@ for i in {1..75}; do
     # Simulate normal user with varied behavior
     client_ip="192.168.1.$((i % 254 + 1))"
     
-    # Send 3-7 requests (normal volume)
+    # Send 12-16 requests so the model sees a realistic "normal" profile
     num_requests=$((RANDOM % 5 + 12))
     
     for j in $(seq 1 $num_requests); do
         endpoint=${endpoints[$((RANDOM % 3))]}
-        curl -s -H "X-Forwarded-For: $client_ip" \
-            "${BASE_URL}${endpoint}" > /dev/null
+        ml_curl "$client_ip" "${BASE_URL}${endpoint}" > /dev/null
         
-        # Human-like delay (2-5 seconds)
+        # Human-like delay (1-2 seconds)
         sleep $((RANDOM % 2 + 1))
     done
     
@@ -85,20 +138,17 @@ for i in {1..75}; do
     # New clients for testing
     client_ip="10.10.10.$((i % 254 + 1))"
     
-    # Normal behavior: 2-6 requests
+    # Normal behavior: short session, but enough to build an initial profile
     num_requests=$((RANDOM % 5 + 6))
     
     for j in $(seq 1 $num_requests); do
         endpoint=${endpoints[$((RANDOM % 3))]}
-        curl -s -H "X-Forwarded-For: $client_ip" \
-            "${BASE_URL}${endpoint}" > /dev/null
+        ml_curl "$client_ip" "${BASE_URL}${endpoint}" > /dev/null
         sleep $((RANDOM % 2 + 1))
     done
     
-    # Get classification
-    result=$(curl -s -H "X-Forwarded-For: $client_ip" "${BASE_URL}/api/ml/status")
-    classification=$(echo "$result" | jq -r '.clientState.classification // "UNKNOWN"')
-    anomaly_score=$(echo "$result" | jq -r '.clientState.anomalyScore // 0.5')
+    # Get classification from either the normal status payload or a rate-limit payload
+    IFS='|' read -r http_status classification anomaly_score <<< "$(read_ml_status "$client_ip")"
     
     # Expected: NORMAL or TRUSTED
     if [ "$classification" = "NORMAL" ] || [ "$classification" = "TRUSTED" ]; then
@@ -144,15 +194,12 @@ for i in {1..75}; do
     num_requests=$((RANDOM % 31 + 30))
     
     for j in $(seq 1 $num_requests); do
-        curl -s -H "X-Forwarded-For: $client_ip" \
-            "${BASE_URL}/api/ml/data" > /dev/null
+        ml_curl "$client_ip" "${BASE_URL}/api/ml/data" > /dev/null
         sleep 0.05  # 50ms = very fast, bot-like
     done
     
-    # Get classification
-    result=$(curl -s -H "X-Forwarded-For: $client_ip" "${BASE_URL}/api/ml/status")
-    classification=$(echo "$result" | jq -r '.clientState.classification // "UNKNOWN"')
-    anomaly_score=$(echo "$result" | jq -r '.clientState.anomalyScore // 0.5')
+    # Status can be 200 or 429; either way the classification is useful
+    IFS='|' read -r http_status classification anomaly_score <<< "$(read_ml_status "$client_ip")"
     
     # Expected: SUSPICIOUS or THREAT
     if [ "$classification" = "SUSPICIOUS" ] || [ "$classification" = "THREAT" ]; then
@@ -176,7 +223,7 @@ for i in {1..75}; do
 done
 
 echo " Complete!"
-echo "Bot traffic tested: 500"
+echo "Bot traffic tested: 75"
 echo "Correct classifications (detected): $tp"
 echo "False negatives (missed): $fn"
 echo ""
@@ -188,12 +235,12 @@ echo "════════════════════════�
 echo "CALCULATING ACCURACY METRICS"
 echo "═══════════════════════════════════════════════════════════"
 
-accuracy=$(echo "scale=4; $correct_predictions * 100 / $total_samples" | bc)
-precision=$(echo "scale=4; $tp * 100 / ($tp + $fp)" | bc)
-recall=$(echo "scale=4; $tp * 100 / ($tp + $fn)" | bc)
-f1_score=$(echo "scale=4; 2 * $precision * $recall / ($precision + $recall)" | bc)
-fpr=$(echo "scale=4; $fp * 100 / ($fp + $tn)" | bc)
-fnr=$(echo "scale=4; $fn * 100 / ($fn + $tp)" | bc)
+accuracy=$(safe_percent "$correct_predictions" "$total_samples")
+precision=$(safe_percent "$tp" "$((tp + fp))")
+recall=$(safe_percent "$tp" "$((tp + fn))")
+f1_score=$(safe_f1 "$precision" "$recall")
+fpr=$(safe_percent "$fp" "$((fp + tn))")
+fnr=$(safe_percent "$fn" "$((fn + tp))")
 
 # Generate report
 cat > "${RESULTS_DIR}/confusion_matrix_${TIMESTAMP}.txt" << EOF

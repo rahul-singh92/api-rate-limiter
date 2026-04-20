@@ -1,0 +1,47 @@
+ML Model Accuracy Report (FIXED TEST)
+======================================
+Date: Thu Apr 16 03:17:34 IST 2026
+Total Samples: 150
+
+Training:
+---------
+Phase 1: Trained on 75 normal users (clean data)
+
+Testing:
+--------
+Phase 2: 75 normal users
+Phase 3: 75 bot users
+
+Confusion Matrix:
+                 Predicted
+               Normal  Attack
+Actual Normal   67      8
+       Attack   0      75
+
+Metrics:
+--------
+Overall Accuracy:    94.6666%
+Precision:           90.3614%
+Recall:              100.0000%
+F1-Score:            94.9366%
+False Positive Rate: 10.6666%
+False Negative Rate: 0%
+
+Breakdown:
+----------
+True Negatives (Normal correctly classified):  67 / 75
+False Positives (Normal wrongly flagged):      8 / 75
+True Positives (Attack correctly detected):    75 / 75
+False Negatives (Attack missed):               0 / 75
+
+Expected Results:
+-----------------
+✅ Accuracy > 85%:  GOOD (realistic for production)
+✅ FPR < 15%:       Acceptable (some false alarms OK)
+✅ FNR < 20%:       Good attack detection
+
+Interpretation:
+---------------
+This test now trains on CLEAN normal traffic first,
+then tests the model. Much more realistic than the
+previous test that mixed training data!

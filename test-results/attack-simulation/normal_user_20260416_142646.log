@@ -1,0 +1,10 @@
+Starting Normal user simulation...
+
+Normal User Results:
+  Duration: 131s
+  Total Requests: 30
+  Successful: 26
+  Blocked (429): 4
+  Block Rate: 13.33%
+  ML Classification: SUSPICIOUS
+  Anomaly Score: 0.6971

@@ -1,0 +1,44 @@
+API Rate Limiter - All Algorithm Load Test Summary
+==================================================
+Date: Sun Apr 19 14:55:18 IST 2026
+Base URL: http://localhost:3000
+Requests per Algorithm: 1000000
+Concurrent Users: 100
+Cooldown Between Algorithms: 10s
+Run ID: load-20260419_142707-10444
+
+System Information:
+-------------------
+OS: Darwin 25.3.0
+Architecture: arm64
+CPU: Apple M4
+RAM: 16.00 GB
+
+Results by Algorithm:
+---------------------
+Slug       Algorithm                  OK          429/Non2xx  Failed      Req/sec     Mean       P95        P99        Result    
+------------------------------------------------------------------------------------------------------------------------
+fixed      Fixed Window               100         999900      999900      10779.94    9.276      15         29         PASS      
+token      Token Bucket               300         999700      999700      7993.29     12.510     21         35         PASS      
+leaky      Leaky Bucket               300         999700      999700      7809.67     12.805     21         35         PASS      
+sliding    Sliding Window Log         300         999700      999700      6238.40     16.030     33         51         PASS      
+counter    Sliding Window Counter     387         999613      999613      4655.97     21.478     39         57         PASS      
+priority   Priority Token Bucket      300         999700      999999      6697.73     14.930     26         41         PASS      
+reputation Reputation Based           171         999829      999999      6396.97     15.632     27         41         PASS      
+hybrid     Hybrid Adaptive            323         999677      999999      6340.76     15.771     28         41         PASS      
+cpu        CPU Adaptive               300         999700      999900      6506.44     15.369     28         43         PASS      
+ml         ML Assisted                263         999737      999990      4117.62     24.286     46         71         PASS      
+
+Files:
+------
+CSV Data: ./test-results/load_test_20260419_142707.csv
+ApacheBench logs: ./test-results/ab_*_20260419_142707.log
+Gnuplot data: ./test-results/gnuplot_*_20260419_142707.tsv
+
+Notes:
+------
+- 429/Non2xx is parsed from ApacheBench "Non-2xx responses". In these endpoints that normally means rate-limited responses.
+- Each algorithm uses a unique X-Client-Id and X-Forwarded-For value for this run.
+- Priority and Hybrid tests use X-User-Tier: free so their tier-aware behavior is explicit.
+- For a quick smoke test, run:
+  TOTAL_REQUESTS=1000 CONCURRENT_USERS=20 COOLDOWN_SECONDS=1 tests/test_1m.sh

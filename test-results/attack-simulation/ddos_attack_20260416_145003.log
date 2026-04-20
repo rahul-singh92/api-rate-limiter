@@ -1,0 +1,11 @@
+Starting DDoS attack...
+
+DDoS Attack Results:
+  Duration: 74s
+  Total Requests: 1000
+  Successful: 20
+  Blocked (429): 980
+  Block Rate: 98.00%
+  Status Response: 429
+  ML Classification: THREAT
+  Anomaly Score: 0.7483

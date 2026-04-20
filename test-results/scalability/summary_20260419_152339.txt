@@ -1,0 +1,24 @@
+API Rate Limiter - Scalability Test Summary
+=============================================
+Date: Sun Apr 19 2026 15:24:14 GMT+0530 (India Standard Time)
+Base URL: http://localhost:3000
+Run ID: scale-20260419_152339-14052
+Requests per client: 20
+Concurrency levels: 100, 500, 1000, 2000
+
+Results:
+--------
+Algorithm     Clients      Req/Sec     Mean Lat   Accuracy      2xx   Non2xx   Errors      P97.5        P99
+--------------------------------------------------------------------------------------------------------------
+ml                100      2000.00       9.82ms    100.00%     2000        0        0   158.00ms   214.00ms
+ml                500      5000.00      38.10ms    100.00%    10000        0        0    70.00ms   927.00ms
+ml               1000      6666.34      60.92ms    100.00%    20000        0        0   956.00ms  1618.00ms
+ml               2000      4406.89     188.95ms     99.14%    39655        0      345  2515.00ms  6531.00ms
+
+Metric definitions:
+- Req/Sec: Autocannon average completed requests per second.
+- Mean Lat: Autocannon average latency in milliseconds.
+- Accuracy: 2xx responses divided by attempted requests.
+- Non2xx: Mostly 429 rate-limit responses for these endpoints.
+
+CSV data: test-results/scalability/scalability_20260419_152339.csv

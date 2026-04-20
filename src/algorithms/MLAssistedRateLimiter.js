@@ -336,6 +336,8 @@ class MLAssistedRateLimiter {
     
     this.minTrainingData = options.minTrainingData || 200;
     this.retrainInterval = options.retrainInterval || 50;
+    this.minTrainingProfileRequests = options.minTrainingProfileRequests || 5;
+    this.minPredictionRequests = options.minPredictionRequests || 10;
     this.modelPath = options.modelPath || path.join(__dirname, '..', 'data', 'ml-model.json');
     
     // Stricter thresholds
@@ -385,6 +387,8 @@ class MLAssistedRateLimiter {
     console.log('✅ ML-Assisted rate limiter initialized (FINAL VERSION)');
     console.log(`   Training threshold: ${this.minTrainingData} requests`);
     console.log(`   Retrain interval: ${this.retrainInterval} requests`);
+    console.log(`   Min profile for training: ${this.minTrainingProfileRequests} requests`);
+    console.log(`   Min profile for prediction: ${this.minPredictionRequests} requests`);
   }
 
   getClient(clientId) {
@@ -561,7 +565,7 @@ class MLAssistedRateLimiter {
     }
     
     // 🔥 CRITICAL FIX: Only train on normal-looking traffic
-    if (client.requests.length >= 10) {
+    if (client.requests.length >= this.minTrainingProfileRequests) {
       const features = this.extractFeatures(client);
       const quickScore = this.quickAnomalyCheck(features);
       
@@ -650,7 +654,10 @@ class MLAssistedRateLimiter {
     let anomalyScore = 0.5;
     let classification = 'NORMAL';
     
-    if (this.model.trained && client.requests.length >= 5) {
+    // Wait for a slightly richer profile before classifying so short,
+    // legitimate sessions do not get flagged before the model has seen
+    // enough comparable history.
+    if (this.model.trained && client.requests.length >= this.minPredictionRequests) {
       try {
         anomalyScore = this.model.predict(features);
         classification = this.classify(anomalyScore);
@@ -804,7 +811,9 @@ class MLAssistedRateLimiter {
       config: {
         baseCapacity: this.baseCapacity,
         baseRefillRate: this.baseRefillRate + ' tokens/s',
-        retrainInterval: this.retrainInterval + ' requests'
+        retrainInterval: this.retrainInterval + ' requests',
+        minTrainingProfileRequests: this.minTrainingProfileRequests + ' requests',
+        minPredictionRequests: this.minPredictionRequests + ' requests'
       }
     };
   }

@@ -1,0 +1,25 @@
+Attack Simulation Summary
+=========================
+Date: Thu Apr 16 14:56:51 IST 2026
+
+Attack Results:
+---------------
+Attack Type         | Requests | Blocked | Block%  | ML Classification | Anomaly Score
+--------------------|----------|---------|---------|-------------------|---------------
+DDoS                | 1000     | 980     | 98.00% | THREAT | 0.7483
+Bot/Scraper         | 200      | 181      | 90.50% | THREAT | 0.7468
+API Enumeration     | 150      | 89      | 59.33% | SUSPICIOUS | 0.659
+Normal User         | 30       | 0       | 0%  | SUSPICIOUS | 0.6592
+
+Notes:
+- Status is read from /api/ml/status using the same X-Client-Id as the simulated traffic.
+- If the status request itself is rate-limited, the script still reads classification from the 429 response body.
+- Enumeration now probes non-existent IDs (1001-1150) so the model sees the suspicious error-heavy pattern.
+
+Expected Behavior:
+- DDoS: Should be classified as THREAT or strong SUSPICIOUS
+- Bot: Should be classified as SUSPICIOUS/THREAT
+- Enumeration: Should be classified as SUSPICIOUS/THREAT
+- Normal: Should be classified as NORMAL/TRUSTED
+
+All logs saved in: ./test-results/attack-simulation
